@@ -1,0 +1,6 @@
+target:
+  - stabilizer: [XX, ZZ]
+POVM_list:
+  - pauli: [RPM]
+R_list: 1657
+confidence_level: 0.95
