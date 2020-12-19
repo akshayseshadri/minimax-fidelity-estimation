@@ -117,13 +117,13 @@ class Plot_Manager():
             # ensure that font type is 42 (TrueType) for enabling vector graphics when pdf is saved
             mpl.rcParams['pdf.fonttype'] = 42
 
-    def _parse_kwargs(self, kwargs_param, base_values = 'default'):
+    def _parse_kwargs(self, kwargs_param, base_values = 'pm_default'):
         """
             Parses the dictionary kwargs_param supplied to add_data or draw_plots that contains keyword arguments to make the plot.
             Returns a dictionary of data parameters with appropriately assigned default or supplied values for each keyword argument.
 
             'base_values' refers to the values that need to be used for arguments (that are a part of 'default_params') that have not been supplied.
-            If it is set to 'default', the base values used are those in default_params attribute.
+            If it is set to 'pm_default', the base values used are those in default_params attribute.
             Else, if a data key is given, the values in the parameter dictionary corresponding to that data_key is used as the base.
             Only the arguments that have been supplied through kwargs_param are modified.
 
@@ -132,13 +132,13 @@ class Plot_Manager():
         """
         # start with the either the default values of parameters or the values for the given data_key, and modify only the parameters that have been supplied as arguments
         # note that deep copy is not required below because we will be completely replacing the value for any given key
-        base_values = str(base_values).lower()
-        if base_values == 'default':
+        base_values = str(base_values)
+        if base_values.lower() == 'pm_default':
             data_params = self.default_params.copy()
         elif base_values in self.data_key_list:
             data_params = self.data_params_dict[base_values].copy()
         else:
-            raise ValueError("Incorrect value supplied to 'base_values'. It accepts either a data key or 'default' as input.")
+            raise ValueError("Incorrect value supplied to 'base_values'. It accepts either a data key or 'pm_default' as input.")
 
         # infer the plot type from available plot types
         try:

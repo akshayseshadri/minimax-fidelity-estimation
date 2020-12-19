@@ -1,6 +1,6 @@
 """
-    Creates a fidelity estimator for a given stabilizer state, using a minimax optimal measurement strategy.
-
+    Creates a fidelity estimator for any pure state, using randomized Pauli measurement strategy.
+    
     Author: Akshay Seshadri
 """
 
@@ -34,59 +34,6 @@ def project_on_box(v, l, u):
     Pi_v = np.minimum(np.maximum(v, l), u)
 
     return Pi_v
-
-def pauli_inner_product(rho, index_list):
-    """
-        Finds the inner product of density matrix rho with the Pauli operators specified using index_list.
-
-        tr(W rho) = \sum_j \sum_k <j| rho |k> <k| W |j>
-
-        Therefore, we calculate <j| W |k> for each Pauli operator specified, and then compute the trace.
-
-        If W = \sigma_w1 \otimes ... \otimes \sigma_wnq with wi \in {0, 1, 2, 3},
-        and |k> = |k1...knq> with ki \in {0, 1}, then
-        W |k> = \otimes_{i = 1}^nq p(wi, ki) |s(wi, ki)>
-        where p(wi, ki) = 0          if wi \in {0, 1}
-                        = (-1)^ki 1j if wi = 2
-                        = (-1)^ki    if wi = 3
-        and   s(wi, ki) = ki         if wi \in {0, 3}
-                        = 1 - ki     if wi \in {1, 2}
-
-        Therefore, <j| W |k> = \prod_{i = 1}^nq p(wi, ki) <ji | s(wi, ki)>.
-    """
-    # dimension of the system
-    n = int(np.sqrt(rho.size))
-
-    # number of qubits
-    nq = int(np.log2(n))
-    if 2**nq != n:
-        raise ValueError("Only systems of qubits supported, i.e., the dimension should be a power of 2")
-
-    if type(index_list) not in [list, tuple]:
-        index_list = [index_list]
-
-    index_list = [po.lower().translate(str.maketrans('ixyz', '0123')) for po in index_list]
-
-    for (count, index) in enumerate(index_list):
-        if type(index) in [int, np.int64]:
-            if index > 4**nq - 1:
-                raise ValueError("Each index must be a number between 0 and 4^{nq} - 1")
-            # make sure index is a string
-            index = np.base_repr(index, base = 4)
-            # pad the index with 0s on the left so that the total string is of size nq (as we need a Pauli operator acting on nq qubits)
-            index = index.rjust(nq, '0')
-        elif type(index) == str:
-            # get the corresponding integer
-            index_num = np.array(list(index), dtype = 'int')
-            index_num = index_num.dot(4**np.arange(len(index) - 1, -1, -1))
-            
-            if index_num > 4**nq - 1:
-                raise ValueError("Each index must be a number between 0 and 4^{nq} - 1")
-
-            # pad the index with 0s on the left so that the total string is of size nq (as we need a Pauli operator acting on nq qubits)
-            index = index.rjust(nq, '0')
-
-        # compute <j| W |k> for W specified by the index (but without constructing W)
 
 class Pauli_Sampler_Fidelity_Estimation_Manager():
     """
@@ -126,7 +73,7 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
         The minimax optimal (binary) measurement strategy for stabilizer states consists of uniformly randomly sampling from the stabilizer group (all elements
         except the identity) and measuring them (just knowledge of the eigenvalue, whether +1 or -1, suffices).
     """
-    def __init__(self, n, R, NF, epsilon, epsilon_o, tol = 1e-6, print_progress = True):
+    def __init__(self, n, R, NF, epsilon, epsilon_o, tol = 1e-6, random_init = False, print_progress = True):
         """
             Assigns values to parameters and defines and initializes functions.
 
@@ -135,6 +82,17 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
 
             The small parameter epsilon_o required to formalize Juditsky & Nemirovski's approach is used only in the optimization for finding alpha.
             It is not used in finding the optimal sigma_1 and sigma_2 because those are computed "by hand".
+
+            Arguments:
+                - n              : dimension of the system
+                - R              : total number of repetitions used
+                - NF             : the normalization factor, NF = \sum_i |tr(W_i rho)|,
+                                   where the sum is over all non-identity Paulis and rho is the target state
+                - epsilon        : 1 - confidence level, should be between 0 and 0.25, end points excluded
+                - epsilon_o      : constant to prevent zero probabilities in Born's rule
+                - tol            : tolerance used by the optimization algorithms
+                - random_init    : if True, a random initial condition is used for the optimization
+                - print_progress : if True, the progress of optimization is printed
         """
         # confidence level
         self.epsilon = epsilon
@@ -166,136 +124,39 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
 
         # if gamma is not large enough, we have a risk of 0.5
         if R <= self.Ro:
-            warnings.warn("The number of repetitions are very low. Consider raising the number of repetitions to at least %d." %self.Ro)
+            warnings.warn("The number of repetitions are very low. Consider raising the number of repetitions to at least %d." %self.Ro, MinimaxOptimizationWarning)
 
         # tolerance for all the computations
         self.tol = tol
 
+        # initialization for maximize_Phi_r_density_matrices_multiple_measurements (to be used specifically for find_alpha_saddle_point_fidelity_estimation)
+        if not random_init:
+            # we choose lambda_1 = lambda_2 = 1, which corresponds to sigma_1 = sigma_2 = rho
+            self.mpdm_lambda_ds_o = np.array([1, 1])
+        else:
+            # take lambda_1 and lambda_2 as some random number between 0 and 1
+            self.mpdm_lambda_ds_o = np.random.random(size = 2)
+
         # determine whether to print progress
         self.print_progress = print_progress
 
-        # initialization for maximize_Phi_r_density_matrices_multiple_measurements (to be used specifically for find_alpha_saddle_point_fidelity_estimation)
-        # we choose lambda_1 = lambda_2 = 1, which corresponds to sigma_1 = sigma_2 = rho
-        self.mpdm_lambda_ds_o = np.array([1, 1])
+        # determine whether the optimization achieved the tolerance
+        self.success = True
 
-    ###----- Finding x, y maximum of \Phi_r
-    def find_density_matrices_saddle_point(self):
+    ###----- Finding x, y maximum and alpha minimum of \Phi_r
+    def maximize_Phi_r_alpha_density_matrices(self, alpha):
         """
             Solves the optimization problem
 
-            \max_{sigma_1, sigma_2 \in X} {Tr(rho sigma_1) - Tr(rho sigma_2) | -R\log(\sum_i \sqrt{(p_1)_i (p_2)_i}) <= r}
-                = - \min{sigma_1, sigma_2 \in X} {-Tr(rho sigma_1) + Tr(rho sigma_2) | -\log(\sum_i \sqrt{(p_1)_i (p_2)_i}) <= r/R}
+            \max_{sigma_1, sigma_2 \in X} \Phi_r_alpha(sigma_1, sigma_2)
+            = -\min_{sigma_1, sigma_2 \in X} -\Phi_r_alpha(sigma_1, sigma_2)
 
-            where (p_1)_i = (Tr(E_i sigma_1) + \epsilon_o/Nm) / (1 + \epsilon_o), (p_2)_i = (Tr(E_i sigma_2) + \epsilon_o/Nm) / (1 + \epsilon_o)
-            and Nm denotes the number of POVM elements. X is the set of density matrices, rho is the "target" density matrix, and {E_i}_{i = 1}^{N_m}
-            form a POVM. R, r > 0 are parameters, where 'R' denotes the number of observations of the POVM measurement.
-            The small parameter \epsilon_o is neglected.
-
-            The optimization problem is solved "by hand".
-            Each density matrix is represented using just one real-valued number, independent of the dimension of the system:
-                sigma_1 = lambda_1 rho + (1 - lambda_1) rho_1_perp
-                sigma_2 = lambda_2 rho + (1 - lambda_2) rho_2_perp
-            where 0 <= lambda_1, lambda_2 <= 1, and rho_1_perp and rho_2_perp are density matrices in the orthogonal complement of the target state rho.
-
-            The density matrices sigma_1*, sigma_2* achieving this maximum/minimum correspond to the (x, y) component of the saddle point of \Phi_r.
-
-            We give explicit expression for lambda_1* and lambda_2* below.
-                lambda_1* = [(2a* - 1) gamma + (1 - 2 omega2) + sqrt{(1 - gamma) (1 - (2a - 1)^2 gamma)}] / 2(omega1 - omega2)
-                lambda_2* = [(2a* - 1) gamma + (1 - 2 omega2) - sqrt{(1 - gamma) (1 - (2a - 1)^2 gamma)}] / 2(omega1 - omega2)
-            where gamma = (epsilon / 2)^(2 / R).
-
-            The optimum value (a*) of the parameter a is decided as follows. We define
-                a1_plus  = omega1 + sqrt{omega1 (1 - omega1) (1/gamma - 1)}
-                a1_minus = omega1 - sqrt{omega1 (1 - omega1) (1/gamma - 1)}
-                a2_plus  = omega2 + sqrt{omega2 (1 - omega2) (1/gamma - 1)}
-                a2_minus = omega2 - sqrt{omega2 (1 - omega2) (1/gamma - 1)}
-
-            Here, omega1 = (n + NF - 1) / 2NF and omega2 = (NF - 1) / 2NF, where NF = \sum_i |tr(W_i rho)| is the "normalization factor" in the probability.
-
-            The allowed values of a lie in A_a = [0, 1] \cap ((-inf, a1_minus] \cup [a1_plus, inf)) \cap ((-inf, a2_minus] \cup [a2_plus, inf))
-            The value of a that needs to be chosen is the allowed value that is closest to 1/2.
-
-            A few different cases are considered to help find this optimum allowed value.
-
-            Case 1: a1_minus < a2_plus
-                Case 1.i:  a2_plus < a1_plus  => A_a = [0, a2_minus] \cup [a1_plus, 1]
-                Case 1.ii: a1_plus <= a2_plus => A_a = [0, a2_minus] \cup [a2_plus, 1]
-            Case 2: a2_plus <= a1_minus
-                A_a = [0, a2_minus] \cup [a2_plus, a1_minus] \cup [a1_plus, 1]
-
-            We use the convention that [l1, l2] is the empty set if l1 > l2.
-            
-            Returns (lambda_1*, lambda_2*).
-        """
-        # quantities used to calculate the optimum value of parameter 'a'
-        a1_plus  = self.omega1 + np.sqrt(np.abs(self.omega1 * (1 - self.omega1) * (1/self.gamma - 1)))
-        a1_minus = self.omega1 - np.sqrt(np.abs(self.omega1 * (1 - self.omega1) * (1/self.gamma - 1)))
-        a2_plus  = self.omega2 + np.sqrt(np.abs(self.omega2 * (1 - self.omega2) * (1/self.gamma - 1)))
-        a2_minus = self.omega2 - np.sqrt(np.abs(self.omega2 * (1 - self.omega2) * (1/self.gamma - 1)))
-
-        # check if a = 1/2 is an allowed value, and if not compute the value closest to it
-        a_opt = None
-        if a1_minus < a2_plus:
-            if a2_plus < a1_plus:
-                if (0 <= 0.5 <= a2_minus) or (a1_plus <= 0.5 <= 1):
-                    a_opt = 0.5
-                elif np.abs(a2_minus - 0.5) <= np.abs(a1_plus - 0.5):
-                    a_opt = a2_minus
-                elif np.abs(a2_minus - 0.5) > np.abs(a1_plus - 0.5):
-                    a_opt = a1_plus
-            elif a2_plus >= a1_plus:
-                if (0 <= 0.5 <= a2_minus) or (a2_plus <= 0.5 <= 1):
-                    a_opt = 0.5
-                elif np.abs(a2_minus - 0.5) <= np.abs(a2_plus - 0.5):
-                    a_opt = a2_minus
-                elif np.abs(a2_minus - 0.5) > np.abs(a2_plus - 0.5):
-                    a_opt = a1_plus
-        elif a2_plus <= a1_minus:
-            if (0 <= 0.5 <= a2_minus) or (a2_plus <= 0.5 <= a1_minus) or (a1_plus <= 0.5 <= 1):
-                a_opt = 0.5
-            elif np.abs(a2_minus - 0.5) <= np.abs(a2_plus - 0.5):
-                a_opt = a2_minus
-            elif (np.abs(a2_plus - 0.5) < np.abs(a2_minus - 0.5)) and (np.abs(a2_plus - 0.5) < np.abs(a1_minus - 0.5))\
-                    and (np.abs(a2_plus - 0.5) < np.abs(a1_plus - 0.5)):
-                a_opt = a2_plus
-            elif (np.abs(a1_minus - 0.5) <= np.abs(a1_plus - 0.5)) and (np.abs(a1_minus - 0.5) <= np.abs(a2_plus - 0.5))\
-                    and (np.abs(a1_minus - 0.5) <= np.abs(a2_minus - 0.5)):
-                a_opt = a1_minus
-            elif np.abs(a1_plus - 0.5) < np.abs(a1_minus - 0.5):
-                a_opt = a1_plus
-
-        if a_opt == None:
-            raise ValueError("Optimum value of 'a' not found")
-
-        self.a_opt = a_opt
-
-        # obtain the optimal parameters characterizing the density matrices sigma_1 and sigma_2 at the saddle point
-        if self.R > self.Ro:
-            self.lambda_1_opt = 0.5 * ((2*a_opt - 1) * self.gamma + (1 - 2*self.omega2) + np.sqrt((1 - self.gamma) * (1 - (2*a_opt - 1)**2 * self.gamma))) / (self.omega1 - self.omega2)
-            self.lambda_2_opt = 0.5 * ((2*a_opt - 1) * self.gamma + (1 - 2*self.omega2) - np.sqrt((1 - self.gamma) * (1 - (2*a_opt - 1)**2 * self.gamma))) / (self.omega1 - self.omega2)
-        else:
-            self.lambda_1_opt = 1
-            self.lambda_2_opt = 0
-
-        return (self.lambda_1_opt, self.lambda_2_opt)
-    ###----- Finding x, y maximum of \Phi_r
-
-    ###----- Finding alpha minimum of \Phi_r
-    def maximize_Phi_r_density_matrices(self, phi, alpha):
-        """
-            Sovles the optimization problem
-            
-            \max_{sigma_1, sigma_2 \in X} \Phi_r(sigma_1, sigma_2; phi, alpha)
-            = -\min_{sigma_1, sigma_2 \in X} -\Phi_r(sigma_1, sigma_2; phi, alpha)
-
-            for a fixed vector phi \in R^{N_m} and a number alpha > 0.
+            for a number alpha > 0.
 
             The objective function is given as
 
-            \Phi_r(sigma_1, sigma_2; phi, alpha) = Tr(rho sigma_1) - Tr(rho sigma_2)
-                                                    + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(-phi^{i}_k/alpha) (p^{i}_1)_k)
-                                                        + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(phi^{i}_k/alpha) (p^{i}_2)_k)
-                                                            + 2 alpha r
+            Phi_r_alpha(sigma_1, sigma_2) = Tr(rho sigma_1) - Tr(rho sigma_2)
+                                                + 2 alpha \sum_{i = 1}^N R_i log(\sum_{k = 1}^{N_i} \sqrt{(p^{i}_1)_k (p^{i}_2)_k})
 
             where
             (p^{i}_1)_k = (Tr(E^(i)_k sigma_1) + \epsilon_o/Nm) / (1 + \epsilon_o) and
@@ -318,19 +179,14 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
             Using the above, we reduce the optimization to two dimensions, irrespective of the dimension of rho.
             The optimization is performed using proximal gradient.
         """
-        # for repeated use in functions
-        phi_alpha = phi/alpha
-        phi_alpha_min = np.min(phi_alpha)
-        phi_alpha_max = np.max(phi_alpha)
-
         # we work with direct sum lambda_ds = (lambda_1, lambda_2) for use in pre-written algorithms
-        # the objective function (we work with negative of \Phi_r so that we can minimize instead of maximize)
+        # the objective function (we work with negative of \Phi_r_alpha so that we can minimize instead of maximize)
         def f(lambda_ds):
             lambda_1 = lambda_ds[0]
             lambda_2 = lambda_ds[1]
 
             # start with the terms that don't depend on POVMs
-            f_val = -lambda_1 + lambda_2 - 2.*alpha*self.r
+            f_val = -lambda_1 + lambda_2
 
             # number of repetitions of the POVM measurement
             R = self.R
@@ -341,9 +197,7 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
             p_1 = (np.array([self.omega1 * lambda_1 + self.omega2 * (1 - lambda_1), (1 - self.omega1) * lambda_1 + (1 - self.omega2) * (1 - lambda_1)]) + self.epsilon_o/2) / (1. + self.epsilon_o)
             p_2 = (np.array([self.omega1 * lambda_2 + self.omega2 * (1 - lambda_2), (1 - self.omega1) * lambda_2 + (1 - self.omega2) * (1 - lambda_2)]) + self.epsilon_o/2) / (1. + self.epsilon_o)
 
-            f_val = f_val + alpha*R*(phi_alpha_min - phi_alpha_max)\
-                                - alpha*R*np.log(np.exp(phi_alpha_min - phi_alpha).dot(p_1))\
-                                    - alpha*R*np.log(np.exp(phi_alpha - phi_alpha_max).dot(p_2))
+            f_val = f_val - 2*alpha * R * np.log(np.sqrt(p_1).dot(np.sqrt(p_2)))
 
             return f_val
 
@@ -366,13 +220,14 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
             p_1 = (np.array([self.omega1 * lambda_1 + self.omega2 * (1 - lambda_1), (1 - self.omega1) * lambda_1 + (1 - self.omega2) * (1 - lambda_1)]) + self.epsilon_o/2) / (1. + self.epsilon_o)
             p_2 = (np.array([self.omega1 * lambda_2 + self.omega2 * (1 - lambda_2), (1 - self.omega1) * lambda_2 + (1 - self.omega2) * (1 - lambda_2)]) + self.epsilon_o/2) / (1. + self.epsilon_o)
 
+            # Hellinger affinity between p_1 and p_2
+            AffH = np.sqrt(p_1).dot(np.sqrt(p_2))
+
             # gradient with respect to lambda_1
-            gradf_lambda_1_val = gradf_lambda_1_val - alpha*R * (self.omega1 - self.omega2) *  np.exp(phi_alpha_min - phi_alpha).dot(np.array([1, -1])) / \
-                                                                                                    (np.exp(phi_alpha_min - phi_alpha).dot(p_1) * (1. + self.epsilon_o))
+            gradf_lambda_1_val = gradf_lambda_1_val - alpha * R * (self.omega1 - self.omega2) * np.sqrt(p_2/p_1).dot(np.array([1, -1]))/(AffH * (1. + self.epsilon_o))
 
             # gradient with respect to lambda_2
-            gradf_lambda_2_val = gradf_lambda_2_val - alpha*R * (self.omega1 - self.omega2) * np.exp(phi_alpha - phi_alpha_max).dot(np.array([1, -1])) / \
-                                                                                                    (np.exp(phi_alpha - phi_alpha_max).dot(p_2) * (1. + self.epsilon_o))
+            gradf_lambda_2_val = gradf_lambda_2_val - alpha * R * (self.omega1 - self.omega2) * np.sqrt(p_1/p_2).dot(np.array([1, -1]))/(AffH * (1. + self.epsilon_o))
 
             # gradient with respect to lambda_ds
             gradf_val = np.array([gradf_lambda_1_val, gradf_lambda_2_val])
@@ -396,76 +251,87 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
             return lambda_ds_projection
 
         # perform the minimization using Nesterov's second method (accelerated proximal gradient)
-        lambda_ds_opt = minimize_proximal_gradient_nesterov(f, P, gradf, prox_lP, self.mpdm_lambda_ds_o, tol = self.tol)
+        lambda_ds_opt, error = minimize_proximal_gradient_nesterov(f, P, gradf, prox_lP, self.mpdm_lambda_ds_o, tol = self.tol, return_error = True)
+
+        # check if tolerance is satisfied
+        if error > self.tol:
+            self.success = False
+            warnings.warn("The tolerance for the optimization was not achieved. The estimates may be unreliable. Consider using a random initial condition by setting random_init = True.", MinimaxOptimizationWarning)
 
         # store the optimal point as initial condition for future use
         self.mpdm_lambda_ds_o = lambda_ds_opt
 
         # obtain the density matrices at the optimum
-        lambda_1_opt = lambda_ds_opt[0]
-        lambda_2_opt = lambda_ds_opt[1]
+        self.lambda_1_opt = lambda_ds_opt[0]
+        self.lambda_2_opt = lambda_ds_opt[1]
 
-        return (lambda_1_opt, lambda_2_opt, -f(lambda_ds_opt))
+        return (self.lambda_1_opt, self.lambda_2_opt, -f(lambda_ds_opt))
 
-    def find_alpha_saddle_point(self, phi_alpha_opt, Phi_r_opt):
+    def find_density_matrices_alpha_saddle_point(self):
         """
             Solves the optimization problem
 
-            \min_{alpha > 0} (bar{\Phi_r}((phi/alpha)* x alpha, alpha) - 2\Phi*(r))^2
-
-            where (phi/alpha)* is the saddle point component of \Phi_r, and \Phi*(r) is the corresponding saddle point value.
+            \min_{alpha > 0} (alpha r + 0.5*inf_phi bar{Phi_r}(phi, alpha))
 
             The function bar{\Phi_r} is given as
 
             bar{\Phi_r}(phi, alpha) = \max_{sigma_1, sigma_2 \in X} \Phi_r(sigma_1, sigma_2; phi, alpha)
 
-            for any given vector phi \in R^{N_m} and alpha > 0. The function \Phi_r is given as
+            for any given vector phi \in R^{N_m} and alpha > 0.
 
-            \Phi_r(sigma_1, sigma_2; phi, alpha) = Tr(rho sigma_1) - Tr(rho sigma_2)
-                                                    + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(-phi^{i}_k/alpha) (p^{i}_1)_k)
-                                                        + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(phi^{i}_k/alpha) (p^{i}_2)_k)
-                                                            + 2 alpha r
+            The infinum over phi of bar{\Phi_r} can be solved to obtain
+
+            Phi_r_bar_alpha = \inf_phi bar{Phi_r}(phi, alpha)
+                            = \max_{sigma_1, sigma_2 \in X} \inf_phi \Phi_r(sigma_1, sigma_2; phi, alpha)
+                            = \max_{sigma_1, sigma_2 \in X} [Tr(rho sigma_1) - Tr(rho sigma_2)
+                                + 2 alpha \sum_{i = 1}^N R_i log(\sum_{k = 1}^{N_i} \sqrt{(p^{i}_1)_k (p^{i}_2)_k})]
             where
             (p^{i}_1)_k = (Tr(E^(i)_k sigma_1) + \epsilon_o/Nm) / (1 + \epsilon_o) and
             (p^{i}_2)_k = (Tr(E^{i}_k sigma_2) + \epsilon_o/Nm) / (1 + \epsilon_o) 
             are the probability distributions corresponding to the ith POVM {E^{i}_k}_{k = 1}^{N_i} with N_i elements.
             R_i > 0 is a parameter that denotes the number of observations of the ith type of measurement (i.e., ith POVM).
             There are a total of N POVMs.
+
+            We define
+
+            Phi_r_alpha(sigma_1, sigma_2) = Tr(rho sigma_1) - Tr(rho sigma_2)
+                                                + 2 alpha \sum_{i = 1}^N R_i log(\sum_{k = 1}^{N_i} \sqrt{(p^{i}_1)_k (p^{i}_2)_k})
+            
+            so that
+
+            Phi_r_bar_alpha = \max_{sigma_1, sigma_2 \in X} Phi_r_alpha(sigma_1, sigma_2)
+
+            Note that Phi_r_bar_alpha >= 0 since Phi_r_alpha(sigma_1, sigma_1) = 0.
         """
-        # consider \bar{\Phi_r}(phi*, alpha) as a function of alpha
-        # we know that at the saddle point, \bar{\Phi_r}(phi*, alpha*) = 2\Phi*(r)
-        # so minimize (\bar{\Phi_r}(phi*, alpha) - 2\Phi*(r))^2
+        # print progress, if required
+        if self.print_progress:
+            print("Beginning optimization".ljust(22), end = "\r", flush = True)
+
         def Phi_r_bar_alpha(alpha):
-            phi = phi_alpha_opt * alpha
-            Phi_r_bar_alpha_val = (self.maximize_Phi_r_density_matrices(phi = phi, alpha = alpha)[2]\
-                                                - 2.*Phi_r_opt)**2
+            Phi_r_bar_alpha_val = alpha*self.r + 0.5*self.maximize_Phi_r_alpha_density_matrices(alpha = alpha)[2]
+
             return Phi_r_bar_alpha_val
 
         # perform the minimization
-        alpha_opt = sp.optimize.minimize_scalar(Phi_r_bar_alpha, bounds = (1e-16, 1e3), method = 'bounded').x
+        alpha_optimization_result = sp.optimize.minimize_scalar(Phi_r_bar_alpha, bounds = (1e-16, 1e3), method = 'bounded')
 
-        return alpha_opt
-    ###----- Finding alpha minimum of \Phi_r
+        # value of alpha at optimum
+        self.alpha_opt = alpha_optimization_result.x
 
-    ###----- Finding the constant in the fidelity estimator
-    def find_constant_fidelity_estimator(self, lambda_1_opt, lambda_2_opt, phi_opt, alpha_opt):
-        """
-            Calculate the constant 'c' directly from the saddle point.
-            Created mainly to prevent cluttering the namespace of the calling function.
+        # value of objective function at optimum: gives the risk
+        self.Phi_r_bar_alpha_opt = alpha_optimization_result.fun
 
-            c = 0.5 \max_{sigma_1} [Tr(rho sigma_1) + \sum_{i = 1}^N alpha* R_i log(\sum_{k = 1}^{N_i} exp(-phi*^{i}_k/alpha*) (p^{i}_1)_k)]
-                 - 0.5 \max_{sigma_2} [-Tr(rho sigma_2) + \sum_{i = 1}^N alpha* R_i log(\sum_{k = 1}^{N_i} exp(phi*^{i}_k/alpha*) (p^{i}_2)_k)]
-              = 0.5 (Tr(rho sigma_1*) + Tr(rho sigma_2*))
-              = 0.5 (lambda_1* + lambda_2*)
-        """
-        # start with terms that don't depend on the POVMs
-        c = 0.5*(self.lambda_1_opt + self.lambda_2_opt)
+        # print progress, if required
+        if self.print_progress:
+            print("Optimization complete".ljust(22))
 
-        # store the value of the constant
-        self.c = c
+        # check if alpha optimization was successful
+        if not alpha_optimization_result.success:
+            self.success = False
+            warnings.warn("The optimization has not converge properly to the saddle-point. The estimates may be unreliable. Consider using a random initial condition by setting random_init = True.", MinimaxOptimizationWarning)
 
-        return c
-    ###----- Finding the constant in the fidelity estimator
+        return (self.lambda_1_opt, self.lambda_2_opt, self.alpha_opt)
+    ###----- Finding x, y maximum and alpha minimum of \Phi_r
 
     ###----- Constructing the fidelity estimator
     def find_fidelity_estimator(self):
@@ -502,15 +368,11 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
             For the special case of target stabilizer states and optimial minimax measurement strategy, we simplify the above algorithms
             so that we can compure the estimator for very large dimensions.
         """
-        # print progress, if required
-        if self.print_progress:
-            print("Beginning optimization".ljust(22), end = "\r", flush = True)
-
-        # find the x, y component of the saddle point
-        lambda_1_opt, lambda_2_opt = self.find_density_matrices_saddle_point()
+        # find x, y, and alpha components of the saddle point
+        lambda_1_opt, lambda_2_opt, alpha_opt = self.find_density_matrices_alpha_saddle_point()
 
         # the saddle point value of \Phi_r
-        Phi_r_opt = 0.5*(lambda_1_opt - lambda_2_opt)
+        Phi_r_opt = self.Phi_r_bar_alpha_opt
 
         # construct (phi/alpha)* at saddle point using lambda_1* and lambda_2*
         # the probability distributions corresponding to sigma_1*, sigma_2*:
@@ -522,18 +384,12 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
         # (phi/alpha)* at the saddle point
         phi_alpha_opt = 0.5*np.log(p_1_opt/p_2_opt)
 
-        # find the alpha component of the saddle point
-        self.alpha_opt = self.find_alpha_saddle_point(phi_alpha_opt, Phi_r_opt)
-
         # obtain phi* at the saddle point
         self.phi_opt = phi_alpha_opt * self.alpha_opt
 
         # find the constant in the estimator
-        c = self.find_constant_fidelity_estimator(lambda_1_opt, lambda_2_opt, self.phi_opt, self.alpha_opt)
-
-        # print progress, if required
-        if self.print_progress:
-            print("Optimization complete".ljust(22))
+        # c = 0.5 (Tr(rho sigma_1*) + Tr(rho sigma_2*)) = 0.5 (lambda_1* + lambda_2*)
+        self.c = 0.5*(lambda_1_opt + lambda_2_opt)
 
         # build the estimator
         def estimator(data):
@@ -553,7 +409,7 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
                 raise ValueError("The estimator is built to handle only %d outcomes, while %d outcomes have been supplied." %(self.R, len(data)))
 
             # start with the terms that don't depend on the POVMs
-            estimate = c
+            estimate = self.c
 
             # build the estimate using the phi* component at the saddle point, accounting for data from the POVM
             estimate = estimate + np.sum([self.phi_opt[l] for l in data])
@@ -565,7 +421,7 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
         return (estimator, Phi_r_opt)
     ###----- Constructing the fidelity estimator
 
-def generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, epsilon_o):
+def generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, epsilon_o, flip_outcomes = False):
     """
         Generates the outcomes (index pointing to appropriate POVM element) for a Pauli sampling measurement strategy.
         The strategy involves sampling the non-identity Pauli group elements, measuring them, and only using the
@@ -573,6 +429,9 @@ def generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, ep
         The sampling is done as per the probability distribution p_i = |tr(W_i rho)| / \sum_i |tr(W_i rho)|.
         We represent this procedure by an effective POVM containing two elements.
         If outcome eigenvalue is +1, that corresponds to index 0 of the effective POVM, while eigenvalue -1 corresponds to index 1 of the effective POVM.
+
+        If flip_outcomes is True, we measure the measure Paulis, and later flip the measurement outcomes (+1 <-> -1) as necessary. If not, we directly
+        measure negative of the Pauli operator.
 
         The function requires the target state (rho) and the actual state "prepared in the lab" (sigma) as inputs.
         The states (density matrices) are expected to be flattened in row-major style.
@@ -633,6 +492,11 @@ def generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, ep
     for (count, num_povm) in enumerate(num_povm_list):
         # index of pauli opetator to measure, along with the phase
         pauli, phase = pauli_to_measure[count]
+
+        if flip_outcomes:
+            # don't include the phase while measuring
+            # the phase is incorporated after the measurement outcomes are obtained
+            phase = 1
 
         # generate POVM depending on whether projectors on subpace or projectors on each eigenvector is required
         if num_povm == 2:
@@ -704,8 +568,17 @@ def generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, ep
     for (count, data) in enumerate(data_list):
         num_povm = num_povm_list[count]
         pauli_index, phase = pauli_to_measure[count]
+
+        if flip_outcomes:
+            # store the actual phase for later use
+            actual_phase = int(phase)
+            # Pauli were measured without the phase, so do the conversion of outcomes to those of effective POVM with that in mind
+            phase = 1
         
-        # for num_povm = 2, we have already taken phase into account, so that outcome '0' corresponds to +1 eigenvalue and outcome 1 corresponds to -1 eigenvalue
+        # for num_povm = 2, there is nothing to do because outcome '0' corresponds to +1 eigenvalue and outcome 1 corresponds to -1 eigenvalue
+        # if flip_outcomes is False, then these are also the outcomes for the effective POVM because phase was already accounted for during measurement
+        # if flip_outcomes is True, then we will later flip the outcome index (0 <-> 1) to account for the phase
+
         # for num_povm = n, we need to figure out the eigenvalue corresponding to outcome (an index from 0 to n - 1, pointing to the basis element)
         # we map +1 value to 0 and -1 eigenvalue to 1, which corresponds to the respective indices of elements in the effective POVM
         if num_povm == n:
@@ -731,14 +604,18 @@ def generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, ep
             # type-casted to integers because an index is expected as for each outcome
             data = [int(np.real( (1 - phase*(-1)**(computational_basis_array(outcome_index).dot(pauli_eigval_weight(pauli_index)))) / 2 )) for outcome_index in data]
 
+        if flip_outcomes and actual_phase == -1:
+            # now that we have the data for the effective POVM (without considering the phase), we can flip the outcomes as necessary
+            data = [1 - outcome_index for outcome_index in data]
+
         # include this in the list of outcomes for the effective measurement
         effective_outcomes.extend(data)
 
     return effective_outcomes
 
 def fidelity_estimation_pauli_random_sampling(target_state = 'random', nq = 2, num_povm_list = 2, R = 100, epsilon = 0.05, risk = None, epsilon_o = 1e-5, noise = True,\
-                                              noise_type = 'depolarizing', state_args = None, tol = 1e-6, random_seed = 1, verify_estimator = False, print_result = True,\
-                                              write_to_file = False, dirpath = './Data/Computational/', filename = 'temp'):
+                                              noise_type = 'depolarizing', state_args = None, flip_outcomes = False, tol = 1e-6, random_seed = 1, verify_estimator = False,\
+                                              print_result = True, write_to_file = False, dirpath = './Data/Computational/', filename = 'temp'):
     """
         Generates the target_state defined by 'target_state' and state_args, and finds an estimator for fidelity using Juditsky & Nemirovski's approach for a specific measurement scheme
         involving random sampling of Pauli operators.
@@ -774,6 +651,8 @@ def fidelity_estimation_pauli_random_sampling(target_state = 'random', nq = 2, n
         rho = generate_special_state(state = target_state, state_args = state_args_dict[target_state], density_matrix = True,\
                                      flatten = True, isComplex = True)
     elif target_state == 'stabilizer':
+        generators = state_args['generators']
+
         # if generators are specified using I, X, Y, Z, convert them to 0, 1, 2, 3
         generators = [g.lower().translate(str.maketrans('ixyz', '0123')) for g in generators]
 
@@ -809,7 +688,7 @@ def fidelity_estimation_pauli_random_sampling(target_state = 'random', nq = 2, n
         else:
             raise ValueError("Only risk < 0.5 can be achieved by choosing appropriate number of repetitions of the minimax optimal measurement.")
         
-    effective_outcomes = generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, epsilon_o)
+    effective_outcomes = generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, epsilon_o, flip_outcomes)
 
     ### obtain the fidelity estimator
     PSFEM = Pauli_Sampler_Fidelity_Estimation_Manager(n, R, NF, epsilon, epsilon_o, tol)
@@ -828,11 +707,11 @@ def fidelity_estimation_pauli_random_sampling(target_state = 'random', nq = 2, n
         POVM_list = [[omega1 * rho + omega2 * Delta_rho, (1 - omega1) * rho + (1 - omega2) * Delta_rho]]
 
         # Juditsky & Nemirovski estimator
-        FEM = Fidelity_Estimation_Manager(R, epsilon, rho, POVM_list, epsilon_o, tol)
-        fidelity_estimator_general, risk_general = FEM.find_fidelity_estimator()
+        FEMC = Fidelity_Estimation_Manager_Corrected(R, epsilon, rho, POVM_list, epsilon_o, tol)
+        fidelity_estimator_general, risk_general = FEMC.find_fidelity_estimator()
 
         # matrices at optimum
-        sigma_1_opt, sigma_2_opt = embed_hermitian_matrix_real_vector_space(FEM.sigma_1_opt, reverse = True, flatten = True), embed_hermitian_matrix_real_vector_space(FEM.sigma_2_opt, reverse = True, flatten = True)
+        sigma_1_opt, sigma_2_opt = embed_hermitian_matrix_real_vector_space(FEMC.sigma_1_opt, reverse = True, flatten = True), embed_hermitian_matrix_real_vector_space(FEMC.sigma_2_opt, reverse = True, flatten = True)
         # constraint at optimum
         constraint_general = np.real(np.sum([np.sqrt((np.conj(Ei).dot(sigma_1_opt) + epsilon_o/2)*(np.conj(Ei).dot(sigma_2_opt) + epsilon_o/2)) / (1 + epsilon_o) for Ei in POVM_list[0]]))
 
@@ -849,4 +728,4 @@ def fidelity_estimation_pauli_random_sampling(target_state = 'random', nq = 2, n
     if not verify_estimator:
         return PSFEM
     else:
-        return (PSFEM, FEM)
+        return (PSFEM, FEMC)

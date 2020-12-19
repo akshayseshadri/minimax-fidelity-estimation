@@ -76,7 +76,7 @@ class Fidelity_Estimation_Manager():
 
         The saddle point value \Phi*(r) gives an upper bound for the confidence interval within which the error lies.
     """
-    def __init__(self, R_list, epsilon, rho, POVM_list, epsilon_o, tol = 1e-6, print_progress = True, random_init = False):
+    def __init__(self, R_list, epsilon, rho, POVM_list, epsilon_o, tol = 1e-6, random_init = False, print_progress = True):
         """
             Assigns values to parameters and defines and initializes functions.
 
@@ -84,13 +84,14 @@ class Fidelity_Estimation_Manager():
             So, we refer to the matrix form by appending '_full' to the variable name.
 
             Arguments:
-                - R_list      : list of repetitions used for each POVM
-                - epsilon     : 1 - confidence level, should be between 0 and 0.25, end point excluded
-                - rho         : target state; must be a pure state density matrix
-                - POVM_list   : list of POVMs to be measured
-                - epsilon_o   : constant to prevent zero probabilities in Born's rule
-                - tol         : tolerance used by the optimization algorithms
-                - random_init : if True, a random initial condition is used for the optimization
+                - R_list         : list of repetitions used for each POVM
+                - epsilon        : 1 - confidence level, should be between 0 and 0.25, end points excluded
+                - rho            : target state; must be a pure state density matrix
+                - POVM_list      : list of POVMs to be measured
+                - epsilon_o      : constant to prevent zero probabilities in Born's rule
+                - tol            : tolerance used by the optimization algorithms
+                - random_init    : if True, a random initial condition is used for the optimization
+                - print_progress : if True, the progress of optimization is printed
 
             All the matrices are expected to be flattened in row-major style.
         """
@@ -134,14 +135,7 @@ class Fidelity_Estimation_Manager():
         # tolerance for all the computations
         self.tol = tol
 
-        # determine whether to print progress
-        self.print_progress = print_progress
-
-        # counter to track progress
-        if print_progress:
-            self.progress_counter = 0
-
-        ### initial condition initializations
+        # create a state for initializing minimize_lagrangian_density_matrices (to be used specifically for find_density_matrices_saddle_point)
         if not random_init:
             # use a slightly perturbed target state as initial condition
             sigma_init = 0.9 * self.rho_full + 0.1 * (np.eye(int(np.round(np.sqrt(self.n), decimals = 0)), dtype = 'complex128').ravel() - self.rho_full)
@@ -150,221 +144,33 @@ class Fidelity_Estimation_Manager():
             sigma_init = generate_random_state(int(np.round(np.sqrt(self.n), decimals = 0)), pure = False, density_matrix = True, flatten = True, random_seed = None)
             sigma_init = embed_hermitian_matrix_real_vector_space(sigma_init.astype('complex128'))
 
-        # initalization for minimize_lagrangian_density_matrices (to be used specifically for find_density_matrices_saddle_point)
-        self.mldm_sigma_ds_o = np.concatenate((sigma_init, sigma_init))
-
-        # initialization for maximize_Phi_r_density_matrices_multiple_measurements (to be used specifically for find_alpha_saddle_point_fidelity_estimation)
+        # initialization for maximize_Phi_r_alpha_density_matrices (to be used specifically for find_density_matrices_alpha_saddle_point)
         self.mpdm_sigma_ds_o = np.concatenate((sigma_init, sigma_init))
 
-    ###----- Finding x, y maximum of \Phi_r
-    def minimize_lagrangian_density_matrices_saddle_point(self, l):
-        """
-            Performs the minimization \min_{sigma_1, sigma_2 \in X} L(sigma_1, sigma_2; \lambda) for any given \lambda >= 0 in the case of multiple
-            measurements (POVMs).
+        # determine whether to print progress
+        self.print_progress = print_progress
 
-            The lagrangian is given as
+        # counter to track progress
+        if print_progress:
+            self.progress_counter = 0
 
-            L(sigma_1, sigma_2; \lambda) = -Tr(rho sigma_1) + Tr(rho sigma_2)
-                                                - \lambda (\sum_{i = 1}^N R_i \log(\sum_{k = 1}^{N_i} \sqrt{(p_1)^{i}_k (p_2})^{i}_k) + r)/R_max
+        # determine whether the optimization achieved the tolerance
+        self.success = True
 
-            where
-            (p_1)^{i}_k = (Tr(E^{i}_k sigma_1) + \epsilon_o/N_i) / (1 + \epsilon_o),
-            (p_2)^{i}_k = (Tr(E^{i}_k sigma_2) + \epsilon_o/N_i) / (1 + \epsilon_o)
-            and N_i denotes the number of elements in the ith POVM. R_i, r > 0 are parameters. l >= 0 is the dual variable.
-            R_max = max_i R_i
-
-            Proximal gradient is used for this purpose.
-
-            Is is expected that all the Hermitian matrices are embedded into a real vector space.
-            If any result do contain matrices (by converting back the embedded vector into a matrix), these matrices
-            are expected to be flattened (in row-major style). 
-            Operations, where possible, are performed as matrix/array operations.
-        """
-        # maximum number of repetitions of any type of measurement
-        R_max = np.max(self.R_list)
-
-        # we work with direct sum sigma_ds = (sigma_1, sigma_2) for use in pre-written algorithms
-        # the objective function
-        def Lagr(sigma_ds):
-            sigma_1 = sigma_ds[0: self.n]
-            sigma_2 = sigma_ds[self.n: 2*self.n]
-
-            # start with the terms that don't depend on POVMs
-            L_val = -self.rho.dot(sigma_1) + self.rho.dot(sigma_2) - l*self.r/R_max
-
-            # iteratively build the Lagrangian value, accounting for multiple POVMs
-            for i in range(self.N):
-                # number of elements in the ith POVM
-                Ni = self.N_list[i]
-                # ith POVM in matrix form
-                POVM_mat_i = self.POVM_mat_list[i]
-                # number of repetitions of ith POVM measurement
-                Ri = self.R_list[i]
-
-                # the probability distributions corresponding to the POVM
-                p_1_i = (POVM_mat_i.dot(sigma_1) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-                p_2_i = (POVM_mat_i.dot(sigma_2) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-
-                L_val = L_val - l * (Ri/R_max) * np.log(np.sqrt(p_1_i).dot(np.sqrt(p_2_i)))
-
-            return L_val
-
-        # gradient of the objective function
-        def gradL(sigma_ds):
-            sigma_1 = sigma_ds[0: self.n]
-            sigma_2 = sigma_ds[self.n: 2*self.n]
-
-            # gradient with respect to sigma_1: -rho - \sum_i (\lambda R_i/2AffH^{i}) \sum_k \sqrt{p_2/p_1}^{i}_k E^{i}_k/(1 + \epsilon_o)
-            # gradient with respect to sigma_2: rho - \sum_i (\lambda R_i/2AffH^{i}) \sum_k \sqrt{p_1/p_2}^{i}_k E^{i}_k/(1 + \epsilon_o)
-
-            # start with the terms that don't depend on POVMs
-            grad_sigma_1 = -self.rho
-            grad_sigma_2 = self.rho
-
-            for i in range(self.N):
-                # number of elements in the ith POVM
-                Ni = self.N_list[i]
-                # ith POVM in matrix form
-                POVM_mat_i = self.POVM_mat_list[i]
-                # number of repetitions of ith POVM measurement
-                Ri = self.R_list[i]
-
-                # the probability distributions corresponding to the POVM:
-                # p_1^{i}(k) = (<E^{i}_k, sigma_1> + \epsilon_o/Nm)/(1 + \epsilon_o) and
-                # p_2^{i}(k) = (<E^{i}_k, sigma_2> + \epsilon_o/Nm)/(1 + \epsilon_o)
-                p_1_i = (POVM_mat_i.dot(sigma_1) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-                p_2_i = (POVM_mat_i.dot(sigma_2) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-
-                # Hellinger affinity between p_1 and p_2
-                AffH_i = np.sqrt(p_1_i).dot(np.sqrt(p_2_i))
-
-                # gradient with respect to sigma_1
-                grad_sigma_1 = grad_sigma_1 - 0.5*l* (Ri/R_max) * np.sqrt(p_2_i/p_1_i).dot(POVM_mat_i)/(AffH_i * (1. + self.epsilon_o))
-
-                # gradient with respect to sigma_2: rho - (\lambda/2AffH) \sum_i \sqrt{p_1/p_2}_i E_i/(1 + \epsilon_o)
-                # in matrix form, rho - \lambda/2 \sqrt{p_1/p_2}^T POVM_mat/AffH
-                grad_sigma_2 = grad_sigma_2 - 0.5*l* (Ri/R_max) * np.sqrt(p_1_i/p_2_i).dot(POVM_mat_i)/(AffH_i * (1. + self.epsilon_o))
-
-            grad_sigma_ds = np.concatenate((grad_sigma_1, grad_sigma_2))
-
-            return grad_sigma_ds
-
-        # the other part of the objective function is an indicator function
-        # because Nesterov's second method always has the interates in the domain, the indicator is always zero
-        P = lambda sigma_ds: 0.
-
-        # proximal operator of an indicator function is projector
-        def prox_lP(sigma_ds, l, tol):
-            # first ensure that we have a Hermitian matrix before projecting on the set of density matrices 
-            # the projection must then be embedded into a real vector space
-
-            sigma_1_projection = project_on_density_matrices_flattened(\
-                                        embed_hermitian_matrix_real_vector_space(sigma_ds[0: self.n], reverse = True, flatten = True))
-
-            sigma_2_projection = project_on_density_matrices_flattened(\
-                                        embed_hermitian_matrix_real_vector_space(sigma_ds[self.n: 2*self.n], reverse = True, flatten = True))
-
-            sigma_ds_projection_embedded = np.concatenate((embed_hermitian_matrix_real_vector_space(sigma_1_projection),\
-                                                           embed_hermitian_matrix_real_vector_space(sigma_2_projection)))
-
-            return sigma_ds_projection_embedded
-
-        # perform the minimization using Nesterov's second method (accelerated proximal gradient)
-        sigma_ds_opt, error = minimize_proximal_gradient_nesterov(Lagr, P, gradL, prox_lP, self.mldm_sigma_ds_o, tol = self.tol, return_error = True)
-
-        # check if tolerance is satisfied
-        if error > self.tol:
-            warnings.warn("The tolerance for the optimization was not achieved. The estimates may be unreliable. Consider using a random initial condition by setting random_init = True.")
-
-        # store the optimizal point as initial condition for future use
-        self.mldm_sigma_ds_o = sigma_ds_opt
-
-        return (sigma_ds_opt, Lagr(sigma_ds_opt))
-
-    def find_density_matrices_saddle_point(self):
+    ###----- Finding x, y maximum and alpha minimum of \Phi_r
+    def maximize_Phi_r_alpha_density_matrices(self, alpha):
         """
             Solves the optimization problem
 
-            \max_{sigma_1, sigma_2 \in X} {Tr(rho sigma_1) - Tr(rho sigma_2) | -R\log(\sum_i \sqrt{(p_1)_i (p_2)_i}) <= r}
-                = - \min{sigma_1, sigma_2 \in X} {-Tr(rho sigma_1) + Tr(rho sigma_2) | -\log(\sum_i \sqrt{(p_1)_i (p_2)_i}) <= r/R}
+            \max_{sigma_1, sigma_2 \in X} \Phi_r_alpha(sigma_1, sigma_2)
+            = -\min_{sigma_1, sigma_2 \in X} -\Phi_r_alpha(sigma_1, sigma_2)
 
-            where (p_1)_i = (Tr(E_i sigma_1) + \epsilon_o/Nm) / (1 + \epsilon_o), (p_2)_i = (Tr(E_i sigma_2) + \epsilon_o/Nm) / (1 + \epsilon_o)
-            and Nm denotes the number of POVM elements. X is the set of density matrices, rho is the "target" density matrix, and {E_i}_{i = 1}^{N_m}
-            form a POVM. R, r > 0 are parameters, where 'R' denotes the number of observations of the POVM measurement.
-
-            The density matrices sigma_1*, sigma_2* achieving this maximum/minimum correspond to the (x, y) component of the saddle point of \Phi_r.
-
-            The problem is solved using duality. The Lagrangian is given as
-
-            L(sigma_1, sigma_2; \lambda) = -Tr(rho sigma_1) + Tr(rho sigma_2) - \lambda (\log(\sum_i \sqrt{Tr(E_i sigma_1) Tr(E_i sigma_2)}) + r/R)
-
-            where the constraint sigma_1, sigma_2 \in X is kept implicit, and \lambda is the dual variable. The dual function is then given as
-
-            g(\lambda) = \min_{sigma_1, sigma_2 \in X} L(sigma_1, sigma_2; \lambda)
-
-            and the dual problem is
-
-            max_{\lambda >= 0} g(\lambda)
-
-            Note that strong duality holds because for any sigma_1 = sigma_2 \in X, we have Tr(E_i sigma_1) = Tr(E_i sigma_2), so p_1 = p_2 and
-            \sum_i \sqrt{(p_1)_i (p_2)_i} = \sum_i p_1 = 1, and therefore the constraint is strictly satisfied for r > 0,
-            and so Slater's condition holds.
-
-            If the dual optimum is achieved at \lambda*, then the optimal density matrices sigma_1*, sigma_2* are given by solving
-            argmin_{sigma_1, sigma_2 \in X} L(sigma_1, sigma_2; \lambda*)
-
-            Note that sigma_1*, sigma_2* need not be unique.
-        """
-        # specify that finding the saddle-point can be time-consuming, if progress must be printed
-        if self.print_progress:
-            print("Finding the saddle-point. Depending on the dimension, the target state and the measurement settings, this can take anywhere from a few minutes to many hours.")
-
-        # negative of the dual function
-        def minus_g(l):
-            # print progress to update the user, if required
-            if self.print_progress:
-                print("Computing saddle-point maximum (count: %s, max-count ~ 500)".ljust(60) %(self.progress_counter,), end = "\r", flush = True)
-
-            g_val = self.minimize_lagrangian_density_matrices_saddle_point(l)[1]
-
-            if self.print_progress:
-                self.progress_counter += 1
-
-            return -g_val
-
-        # perform the dual optimization
-        l_opt = sp.optimize.minimize_scalar(minus_g, bounds = (0, 1e5), method = 'bounded').x
-
-        # find the primal optimal using l*
-        sigma_ds_opt = self.minimize_lagrangian_density_matrices_saddle_point(l_opt)[0]
-
-        # obtain sigma_1_opt and sigma_2_opt
-        self.sigma_1_opt = sigma_ds_opt[0: self.n]
-        self.sigma_2_opt = sigma_ds_opt[self.n: 2*self.n]
-
-        # reset the counter
-        if self.print_progress:
-            self.progress_counter = 0
-
-        return (self.sigma_1_opt, self.sigma_2_opt)
-    ###----- Finding x, y maximum of \Phi_r
-
-    ###----- Finding alpha minimum of \Phi_r
-    def maximize_Phi_r_density_matrices(self, phi_list, alpha):
-        """
-            Sovles the optimization problem
-            
-            \max_{sigma_1, sigma_2 \in X} \Phi_r(sigma_1, sigma_2; phi, alpha)
-            = -\min_{sigma_1, sigma_2 \in X} -\Phi_r(sigma_1, sigma_2; phi, alpha)
-
-            for a fixed vector phi \in R^{N_m} and a number alpha > 0.
+            for a number alpha > 0.
 
             The objective function is given as
 
-            \Phi_r(sigma_1, sigma_2; phi, alpha) = Tr(rho sigma_1) - Tr(rho sigma_2)
-                                                    + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(-phi^{i}_k/alpha) (p^{i}_1)_k)
-                                                        + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(phi^{i}_k/alpha) (p^{i}_2)_k)
-                                                            + 2 alpha r
+            Phi_r_alpha(sigma_1, sigma_2) = Tr(A sigma_1) - Tr(A sigma_2)
+                                                + 2 alpha \sum_{i = 1}^N R_i log(\sum_{k = 1}^{N_i} \sqrt{(p^{i}_1)_k (p^{i}_2)_k})
 
             where
             (p^{i}_1)_k = (Tr(E^(i)_k sigma_1) + \epsilon_o/Nm) / (1 + \epsilon_o) and
@@ -373,26 +179,21 @@ class Fidelity_Estimation_Manager():
             R_i > 0 is a parameter that denotes the number of observations of the ith type of measurement (i.e., ith POVM).
             There are a total of N POVMs.
 
-            The optimization is performed using proximal gradient.
+            The optimization is performed using accelerated proximal gradient (Nesterov's second method).
 
             Is is expected that all the Hermitian matrices are embedded into a real vector space.
             If any result do contain matrices (by converting back the embedded vector into a matrix), these matrices
             are expected to be flattened (in row-major style).
             Operations, where possible, are performed as matrix/array operations.
         """
-        # for repeated use in functions
-        phi_alpha_list = [phi/alpha for phi in phi_list]
-        phi_alpha_min_list = [np.min(phi_alpha) for phi_alpha in phi_alpha_list]
-        phi_alpha_max_list = [np.max(phi_alpha) for phi_alpha in phi_alpha_list]
-
         # we work with direct sum sigma_ds = (sigma_1, sigma_2) for use in pre-written algorithms
-        # the objective function (we work with negative of \Phi_r so that we can minimize instead of maximize)
+        # the objective function (we work with negative of \Phi_r_alpha so that we can minimize instead of maximize)
         def f(sigma_ds):
             sigma_1 = sigma_ds[0: self.n]
             sigma_2 = sigma_ds[self.n: 2*self.n]
 
             # start with the terms that don't depend on POVMs
-            f_val = -self.rho.dot(sigma_1) + self.rho.dot(sigma_2) - 2.*alpha*self.r
+            f_val = -self.rho.dot(sigma_1) + self.rho.dot(sigma_2)
 
             # iteratively build the function value, accounting for multiple POVMs
             for i in range(self.N):
@@ -402,10 +203,6 @@ class Fidelity_Estimation_Manager():
                 POVM_mat_i = self.POVM_mat_list[i]
                 # number of repetitions of ith POVM measurement
                 Ri = self.R_list[i]
-                # phi/alpha components and its maximum and minimum value corresponding to ith POVM
-                phi_alpha_i = phi_alpha_list[i]
-                phi_alpha_i_min = phi_alpha_min_list[i]
-                phi_alpha_i_max = phi_alpha_max_list[i]
 
                 # the probability distributions corresponding to the POVM:
                 # p_1^{i}(k) = (<E^{i}_k, sigma_1> + \epsilon_o/Nm)/(1 + \epsilon_o) and
@@ -413,9 +210,7 @@ class Fidelity_Estimation_Manager():
                 p_1_i = (POVM_mat_i.dot(sigma_1) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
                 p_2_i = (POVM_mat_i.dot(sigma_2) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
 
-                f_val = f_val + alpha*Ri*(phi_alpha_i_min - phi_alpha_i_max)\
-                                    - alpha*Ri*np.log(np.exp(phi_alpha_i_min - phi_alpha_i).dot(p_1_i))\
-                                        - alpha*Ri*np.log(np.exp(phi_alpha_i - phi_alpha_i_max).dot(p_2_i))
+                f_val = f_val - 2*alpha * Ri * np.log(np.sqrt(p_1_i).dot(np.sqrt(p_2_i)))
 
             return f_val
 
@@ -436,10 +231,6 @@ class Fidelity_Estimation_Manager():
                 POVM_mat_i = self.POVM_mat_list[i]
                 # number of repetitions of ith POVM measurement
                 Ri = self.R_list[i]
-                # phi/alpha components and its maximum and minimum value corresponding to ith POVM
-                phi_alpha_i = phi_alpha_list[i]
-                phi_alpha_i_min = phi_alpha_min_list[i]
-                phi_alpha_i_max = phi_alpha_max_list[i]
 
                 # the probability distributions corresponding to the POVM:
                 # p_1^{i}(k) = (<E^{i}_k, sigma_1> + \epsilon_o/Nm)/(1 + \epsilon_o) and
@@ -447,13 +238,14 @@ class Fidelity_Estimation_Manager():
                 p_1_i = (POVM_mat_i.dot(sigma_1) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
                 p_2_i = (POVM_mat_i.dot(sigma_2) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
 
+                # Hellinger affinity between p_1 and p_2
+                AffH_i = np.sqrt(p_1_i).dot(np.sqrt(p_2_i))
+
                 # gradient with respect to sigma_1
-                gradf_sigma_1_val = gradf_sigma_1_val - alpha*Ri*np.exp(phi_alpha_i_min - phi_alpha_i).dot(POVM_mat_i) / \
-                                                                            (np.exp(phi_alpha_i_min - phi_alpha_i).dot(p_1_i) * (1. + self.epsilon_o))
+                gradf_sigma_1_val = gradf_sigma_1_val - alpha * Ri * np.sqrt(p_2_i/p_1_i).dot(POVM_mat_i)/(AffH_i * (1. + self.epsilon_o))
 
                 # gradient with respect to sigma_2
-                gradf_sigma_2_val = gradf_sigma_2_val - alpha*Ri*np.exp(phi_alpha_i - phi_alpha_i_max).dot(POVM_mat_i) / \
-                                                                            (np.exp(phi_alpha_i - phi_alpha_i_max).dot(p_2_i) * (1. + self.epsilon_o))
+                gradf_sigma_2_val = gradf_sigma_2_val - alpha * Ri * np.sqrt(p_1_i/p_2_i).dot(POVM_mat_i)/(AffH_i * (1. + self.epsilon_o))
 
             # gradient with respect to sigma_ds
             gradf_val = np.concatenate((gradf_sigma_1_val, gradf_sigma_2_val))
@@ -485,57 +277,63 @@ class Fidelity_Estimation_Manager():
 
         # check if tolerance is satisfied
         if error > self.tol:
-            warnings.warn("The tolerance for the optimization was not achieved. The estimates may be unreliable. Consider using a random initial condition by setting random_init = True.")
+            self.success = False
+            warnings.warn("The tolerance for the optimization was not achieved. The estimates may be unreliable. Consider using a random initial condition by setting random_init = True.", MinimaxOptimizationWarning)
 
         # store the optimal point as initial condition for future use
         self.mpdm_sigma_ds_o = sigma_ds_opt
 
         # obtain the density matrices at the optimum
-        sigma_1_opt = sigma_ds_opt[0: self.n]
-        sigma_2_opt = sigma_ds_opt[self.n: 2*self.n]
+        self.sigma_1_opt = sigma_ds_opt[0: self.n]
+        self.sigma_2_opt = sigma_ds_opt[self.n: 2*self.n]
 
-        return (sigma_1_opt, sigma_2_opt, -f(sigma_ds_opt))
+        return (self.sigma_1_opt, self.sigma_2_opt, -f(sigma_ds_opt))
 
-    def find_alpha_saddle_point(self, phi_alpha_opt_list, Phi_r_opt):
+    def find_density_matrices_alpha_saddle_point(self):
         """
             Solves the optimization problem
 
-            \min_{alpha > 0} (bar{\Phi_r}((phi/alpha)* x alpha, alpha) - 2\Phi*(r))^2
-
-            where (phi/alpha)* is the saddle point component of \Phi_r, and \Phi*(r) is the corresponding saddle point value.
+            \min_{alpha > 0} (alpha r + 0.5*inf_phi bar{Phi_r}(phi, alpha))
 
             The function bar{\Phi_r} is given as
 
             bar{\Phi_r}(phi, alpha) = \max_{sigma_1, sigma_2 \in X} \Phi_r(sigma_1, sigma_2; phi, alpha)
 
-            for any given vector phi \in R^{N_m} and alpha > 0. The function \Phi_r is given as
+            for any given vector phi \in R^{N_m} and alpha > 0.
 
-            \Phi_r(sigma_1, sigma_2; phi, alpha) = Tr(rho sigma_1) - Tr(rho sigma_2)
-                                                    + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(-phi^{i}_k/alpha) (p^{i}_1)_k)
-                                                        + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(phi^{i}_k/alpha) (p^{i}_2)_k)
-                                                            + 2 alpha r
+            The infinum over phi of bar{\Phi_r} can be solved to obtain
+
+            Phi_r_bar_alpha = \inf_phi bar{Phi_r}(phi, alpha)
+                            = \max_{sigma_1, sigma_2 \in X} \inf_phi \Phi_r(sigma_1, sigma_2; phi, alpha)
+                            = \max_{sigma_1, sigma_2 \in X} [Tr(rho sigma_1) - Tr(rho sigma_2)
+                                + 2 alpha \sum_{i = 1}^N R_i log(\sum_{k = 1}^{N_i} \sqrt{(p^{i}_1)_k (p^{i}_2)_k})]
             where
             (p^{i}_1)_k = (Tr(E^(i)_k sigma_1) + \epsilon_o/Nm) / (1 + \epsilon_o) and
             (p^{i}_2)_k = (Tr(E^{i}_k sigma_2) + \epsilon_o/Nm) / (1 + \epsilon_o) 
             are the probability distributions corresponding to the ith POVM {E^{i}_k}_{k = 1}^{N_i} with N_i elements.
             R_i > 0 is a parameter that denotes the number of observations of the ith type of measurement (i.e., ith POVM).
             There are a total of N POVMs.
+
+            We define
+
+            Phi_r_alpha(sigma_1, sigma_2) = Tr(rho sigma_1) - Tr(rho sigma_2)
+                                                + 2 alpha \sum_{i = 1}^N R_i log(\sum_{k = 1}^{N_i} \sqrt{(p^{i}_1)_k (p^{i}_2)_k})
+            
+            so that
+
+            Phi_r_bar_alpha = \max_{sigma_1, sigma_2 \in X} Phi_r_alpha(sigma_1, sigma_2)
+
+            Note that Phi_r_bar_alpha >= 0 since Phi_r_alpha(sigma_1, sigma_1) = 0.
         """
-        # consider \bar{\Phi_r}(phi*, alpha) as a function of alpha
-        # we know that at the saddle point, \bar{\Phi_r}(phi*, alpha*) = 2\Phi*(r)
-        # so minimize (\bar{\Phi_r}(phi*, alpha) - 2\Phi*(r))^2
         def Phi_r_bar_alpha(alpha):
             # print progress to update the user, if required
             if self.print_progress:
-                print("Computing saddle-point minimum (count: %s, max-count ~ 500)".ljust(60) %(self.progress_counter,), end = "\r", flush = True)
+                print("Finding the saddle-point (count: %s, max-count ~ 500)".ljust(60) %(self.progress_counter,), end = "\r", flush = True)
 
-            phi_list = [phi_alpha_opt * alpha for phi_alpha_opt in phi_alpha_opt_list]
-            Phi_r_bar_alpha_val = (self.maximize_Phi_r_density_matrices(phi_list = phi_list, alpha = alpha)[2]\
-                                                - 2.*Phi_r_opt)**2
-
-            # increment the counter
-            if self.print_progress:
+                # increment the counter
                 self.progress_counter += 1
+
+            Phi_r_bar_alpha_val = alpha*self.r + 0.5*self.maximize_Phi_r_alpha_density_matrices(alpha = alpha)[2]
 
             return Phi_r_bar_alpha_val
 
@@ -543,61 +341,21 @@ class Fidelity_Estimation_Manager():
         alpha_optimization_result = sp.optimize.minimize_scalar(Phi_r_bar_alpha, bounds = (1e-16, 1e3), method = 'bounded')
 
         # value of alpha at optimum
-        alpha_opt = alpha_optimization_result.x
+        self.alpha_opt = alpha_optimization_result.x
 
-        # value of objective function at optimum; this gives the difference between the risk obtained 
-        # from maximizing over sigma_1, sigma_2 and the risk from minimizing over alpha, phi at the saddle point
+        # value of objective function at optimum: gives the risk
         self.Phi_r_bar_alpha_opt = alpha_optimization_result.fun
 
         if self.print_progress:
             print("Optimization complete.".ljust(60))
 
-        # if this risk is very large, the optimization had a problem somewhere
-        # TODO: What tolerance to use for this?
-        if Phi_r_bar_alpha_val > 1e-3:
-            warnings.warn("The optimization has not converged properly to the saddle-point. The estimates cannot be trusted. Consider using a lower tolerance and a random initial point.")
+        # check if alpha optimization was successful
+        if not alpha_optimization_result.success:
+            self.success = False
+            warnings.warn("The optimization has not converge properly to the saddle-point. The estimates may be unreliable. Consider using a random initial condition by setting random_init = True.", MinimaxOptimizationWarning)
 
-        return alpha_opt
-    ###----- Finding alpha minimum of \Phi_r
-
-    ###----- Finding the constant in the fidelity estimator
-    def find_constant_fidelity_estimator(self, sigma_1_opt, sigma_2_opt, phi_opt_list, alpha_opt):
-        """
-            Calculate the constant 'c' directly from the saddle point.
-            Created mainly to prevent cluttering the namespace of the calling function.
-
-            c = 0.5 \max_{sigma_1} [Tr(rho sigma_1) + \sum_{i = 1}^N alpha* R_i log(\sum_{k = 1}^{N_i} exp(-phi*^{i}_k/alpha*) (p^{i}_1)_k)]
-                 - 0.5 \max_{sigma_2} [-Tr(rho sigma_2) + \sum_{i = 1}^N alpha* R_i log(\sum_{k = 1}^{N_i} exp(phi*^{i}_k/alpha*) (p^{i}_2)_k)]
-        """
-        # start with terms that don't depend on the POVMs
-        c = 0.5*(self.rho.dot(sigma_1_opt) + self.rho.dot(sigma_2_opt))
-
-        for i in range(self.N):
-            # number of elements in the ith POVM
-            Ni = self.N_list[i]
-            # ith POVM in matrix form
-            POVM_mat_i = self.POVM_mat_list[i]
-            # number of repetitions of ith POVM measurement
-            Ri = self.R_list[i]
-
-            # the probability distributions corresponding to sigma_1*, sigma_2*:
-            # p^{i}_1(k) = (<E^{i}_k, sigma_1*> + \epsilon_o/Ni)/(1 + \epsilon_o) and
-            # p^{i}_2(k) = (<E^{i}_k, sigma_2*> + \epsilon_o/Ni)/(1 + \epsilon_o)
-            p_1_i = (POVM_mat_i.dot(sigma_1_opt) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-            p_2_i = (POVM_mat_i.dot(sigma_2_opt) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-
-            phi_alpha_i = phi_opt_list[i]/alpha_opt
-            phi_alpha_i_min, phi_alpha_i_max = np.min(phi_alpha_i), np.max(phi_alpha_i)
-
-            c = c + 0.5*(-alpha_opt*Ri*(phi_alpha_i_max + phi_alpha_i_min)\
-                            + alpha_opt*Ri*np.log(np.exp(phi_alpha_i_min - phi_alpha_i).dot(p_1_i))\
-                                - alpha_opt*Ri*np.log(np.exp(phi_alpha_i - phi_alpha_i_max).dot(p_2_i)))
-
-        # store the value of the constant
-        self.c = c
-
-        return c
-    ###----- Finding the constant in the fidelity estimator
+        return (self.sigma_1_opt, self.sigma_2_opt, self.alpha_opt)
+    ###----- Finding x, y maximum and alpha minimum of \Phi_r
 
     ###----- Constructing the fidelity estimator
     def find_fidelity_estimator(self):
@@ -613,7 +371,7 @@ class Fidelity_Estimation_Manager():
 
             is found. Here,
             (p^{i}_1)_k = (Tr(E^(i)_k sigma_1) + \epsilon_o/Nm) / (1 + \epsilon_o) and
-            (p^{i}_2)_k = (Tr(E^{i}_k sigma_2) + \epsilon_o/Nm) / (1 + \epsilon_o) 
+            (p^{i}_2)_k = (Tr(E^{i}_k sigma_2) + \epsilon_o/Nm) / (1 + \epsilon_o)
             are the probability distributions corresponding to the ith POVM {E^{i}_k}_{k = 1}^{N_i} with N_i elements.
             R_i > 0 is a parameter that denotes the number of observations of the ith type of measurement (i.e., ith POVM).
             There are a total of N POVMs.
@@ -630,11 +388,11 @@ class Fidelity_Estimation_Manager():
 
             We use the convention that the ith POVM outcomes are labelled as \Omega_i = {0, ..., N_m - 1}, as Python is zero-indexed.
         """
-        # find the x, y component of the saddle point
-        sigma_1_opt, sigma_2_opt = self.find_density_matrices_saddle_point()
+        # find x, y, and alpha components of the saddle point
+        sigma_1_opt, sigma_2_opt, alpha_opt = self.find_density_matrices_alpha_saddle_point()
 
         # the saddle point value of \Phi_r
-        Phi_r_opt = 0.5*self.rho.dot(sigma_1_opt - sigma_2_opt)
+        Phi_r_opt = self.Phi_r_bar_alpha_opt
 
         # construct (phi/alpha)* at saddle point using sigma_1* and sigma_2*
         phi_alpha_opt_list = [0]*self.N
@@ -653,14 +411,11 @@ class Fidelity_Estimation_Manager():
             # (phi/alpha)* at the saddle point
             phi_alpha_opt_list[i] = 0.5*np.log(p_1_i/p_2_i)
 
-        # find the alpha component of the saddle point
-        self.alpha_opt = self.find_alpha_saddle_point(phi_alpha_opt_list, Phi_r_opt)
-
         # obtain phi* at the saddle point
-        self.phi_opt_list = [phi_alpha_opt * self.alpha_opt for phi_alpha_opt in phi_alpha_opt_list]
+        self.phi_opt_list = [phi_alpha_opt * alpha_opt for phi_alpha_opt in phi_alpha_opt_list]
 
         # find the constant in the estimator
-        c = self.find_constant_fidelity_estimator(sigma_1_opt, sigma_2_opt, self.phi_opt_list, self.alpha_opt)
+        self.c = 0.5*(self.rho.dot(sigma_1_opt) + self.rho.dot(sigma_2_opt))
 
         # build the estimator
         def estimator(data_list):
@@ -674,7 +429,7 @@ class Fidelity_Estimation_Manager():
             N = len(data_list)
 
             # start with the terms that don't depend on the POVMs
-            estimate = c
+            estimate = self.c
 
             # build the estimate iteratively, accounting for each POVM
             for i in range(N):
@@ -683,13 +438,6 @@ class Fidelity_Estimation_Manager():
 
                 # data corresponding to the ith POVM
                 data_i = data_list[i]
-
-                # ensure that only data has only Ri elements (i.e., Ri repetitions), because the estimator is built for just that case
-                if not (len(data_i) == self.R_list[i]):
-                    if len(data_i) > self.R_list[i]:
-                        raise ValueError("More outcomes have been supplied to the estimator than what it has been designed for.")
-                    else:
-                        raise ValueError("Fewer outcomes have been supplied to the estimator than what it has been designed for.")
 
                 estimate = estimate + np.sum([phi_opt_i[l] for l in data_i])
 

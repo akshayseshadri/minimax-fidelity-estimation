@@ -18,9 +18,16 @@ from optparse import OptionParser
 import project_root # noqa
 from src.fidelity_estimation import Fidelity_Estimation_Manager
 from src.fidelity_estimation_pauli_sampling import Pauli_Sampler_Fidelity_Estimation_Manager
-from src.fidelity_estimation_stabilizer import Minimax_Stabilizer_Fidelity_Estimation_Manager
 from src.utilities.qi_utilities import generate_random_state, generate_special_state, generate_Pauli_operator, generate_POVM
 
+### custom warning for optimization
+class MinimaxOptimizationWarning(UserWarning):
+    """
+        Warning specific to optimization performed in the minimax method to find the saddle-point.
+    """
+    pass
+
+### addtition to qi_utilities
 def generate_Pauli_POVM(pauli, projection = 'eigenbasis', flatten = True, isComplex = True):
     """
         Given a Pauli operator as a string, constructs the POVM that performs the measurement of this Pauli operator.
@@ -115,6 +122,7 @@ def generate_Pauli_POVM(pauli, projection = 'eigenbasis', flatten = True, isComp
 
     return POVM
 
+### parsing the settings, constructing the estimator and estimating the fidelity from the outcomes
 def parse_yaml_settings_file(yaml_filepath):
     """
         Parses the YAML file specifying the target state, POVM list, confidence level, and other settings.
@@ -410,6 +418,9 @@ def construct_fidelity_estimator(yaml_filename, estimator_filename, yaml_file_di
     # dimension of the system
     n = int(np.sqrt(rho.size))
 
+    # sepcify whether to use random initial condition for performing the optimization
+    random_init = optional_args['random_init']
+
     ### construct the fidelity estimator
     # if Randomized Pauli measurement scheme has been opted for, use a specially designed efficient algorithm
     # POVM_list[0][0] is equal to 'rpm' if Randomized Pauli measurement scheme has been specified
@@ -431,39 +442,29 @@ def construct_fidelity_estimator(yaml_filename, estimator_filename, yaml_file_di
                 if special_state.lower() == 'stabilizer':
                     isStabilizer = True
 
-        # TODO: Specify random_init for these specialized algorithms?
-
         if isStabilizer:
-            # construct the fidelity estimator for stabilizer states for Randomized Pauli measurement scheme
-            MSFEM = Minimax_Stabilizer_Fidelity_Estimation_Manager(n, R_list, epsilon, epsilon_o, tol, print_progress)
-            _, risk = MSFEM.find_fidelity_estimator()
-            phi_opt_list = [MSFEM.phi_opt]
-            c = MSFEM.c
-            risk_error = None
+            # the normalization factor is n - 1 for stabilizer states
+            NF = n - 1
         else:
             # number of qubits in the system
             nq = int(np.log2(n))
-
             # compute the normalization factor required for constructing the fidelity estimator
             # computing each Pauli operator individulally (as opposed to computing a list of all Pauli operators at once) is a little slower, but can handle more number of qubits
             NF = np.sum([np.abs(np.conj(rho).dot(generate_Pauli_operator(nq = nq, index_list = pauli_index, flatten = True)[0])) for pauli_index in range(1, 4**nq)])
 
-            # construct the fidelity estimator for Randomized Pauli measurement scheme
-            PSFEM = Pauli_Sampler_Fidelity_Estimation_Manager(n, R_list, NF, epsilon, epsilon_o, tol, print_progress)
-            _, risk = PSFEM.find_fidelity_estimator()
-            phi_opt_list = [PSFEM.phi_opt]
-            c = PSFEM.c
-            risk_error = None
+        # construct the fidelity estimator for Randomized Pauli measurement scheme
+        PSFEM = Pauli_Sampler_Fidelity_Estimation_Manager(n, R_list, NF, epsilon, epsilon_o, tol, random_init, print_progress)
+        _, risk = PSFEM.find_fidelity_estimator()
+        phi_opt_list = [PSFEM.phi_opt]
+        c = PSFEM.c
+        success = PSFEM.success
     else:
-        # sepcify whether to use random initial condition for performing the optimization
-        random_init = optional_args['random_init']
-
         # construct the fidelity estimator for specified target state and measurement settings
-        FEM = Fidelity_Estimation_Manager(R_list, epsilon, rho, POVM_list, epsilon_o, tol, print_progress, random_init)
+        FEM = Fidelity_Estimation_Manager(R_list, epsilon, rho, POVM_list, epsilon_o, tol, random_init, print_progress)
         _, risk = FEM.find_fidelity_estimator()
         phi_opt_list = FEM.phi_opt_list
         c = FEM.c
-        risk_error = FEM.Phi_r_bar_alpha_opt
+        success = FEM.success
 
     ### save the estimator
     # create the necessary parent directories to save the estimator file if they don't already exist
@@ -473,8 +474,8 @@ def construct_fidelity_estimator(yaml_filename, estimator_filename, yaml_file_di
     if type(R_list) not in [list, tuple, np.ndarray]:
         R_list = [R_list] * len(POVM_list)
 
-    # save the estimator as a JSON file; 
-    estimator_data = {'estimator': {'phi_opt_list': [phi_opt_i.tolist() for phi_opt_i in phi_opt_list], 'c': c}, 'risk': risk, 'risk_error': risk_error, 'R_list': R_list}
+    # save the estimator as a JSON file
+    estimator_data = {'estimator': {'phi_opt_list': [phi_opt_i.tolist() for phi_opt_i in phi_opt_list], 'c': c}, 'risk': risk, 'R_list': R_list, 'success': success}
 
     with open(estimator_filepath, 'w') as datafile:
         json.dump(estimator_data, datafile)
@@ -640,11 +641,11 @@ def compute_fidelity_estimate_risk(outcomes, estimator_filename, estimator_dir =
         c_data = float(saved_data['estimator']['c'])
         # get the Juditsky & Nemirovski risk of the estimator
         risk = float(saved_data['risk'])
-        # get the difference in risk obtained from maximization and minimization of Phi_r
+        # check if optimization is successful
         try:
-            risk_error_data = float(saved_data['risk_error'])
-        except TypeError:
-            risk_error_data = 0
+            success = bool(saved_data['success'])
+        except KeyError:
+            success = True
         # get the number of repetitions the estimator was constructed for
         R_list_data = saved_data['R_list']
 
@@ -664,9 +665,8 @@ def compute_fidelity_estimate_risk(outcomes, estimator_filename, estimator_dir =
         N = len(data_list)
 
         # ensure that the risk error is not too large
-        # TODO: Using 1e-3 as tolerance. Anything else to use?
-        if risk_error_data > 1e-3:
-            warnings.warn("The optimization has not converged properly to the saddle-point. The estimate cannot be trusted. Consider using a lower tolerance and a random initial point.")
+        if not success:
+            warnings.warn("The optimization has not converged properly to the saddle-point. The estimate cannot be trusted. Consider using a different tolerance and/or a random initial point.", MinimaxOptimizationWarning)
 
         # start with the terms that don't depend on the POVMs
         estimate = c_data
@@ -681,8 +681,8 @@ def compute_fidelity_estimate_risk(outcomes, estimator_filename, estimator_dir =
 
             # ensure that only data has only Ri elements (i.e., Ri repetitions), because the estimator is built for just that case
             if not (len(data_i) == R_list_data[i]):
-                raise ValueError("The number of outcomes supplied to the estimator (%d) for %s POVM does not match " %(len(data_i), ordinal_int(i))\
-                                    + "the number of outcomes (%s) it has been designed for." %(R_list_data[i],))
+                warnings.warn("The number of outcomes supplied to the estimator (%d) for %s POVM does not match " %(len(data_i), ordinal_int(i))\
+                               + "the number of outcomes (%s) it has been designed for. The estimate cannot be trusted." %(R_list_data[i],), MinimaxOptimizationWarning)
 
             estimate = estimate + np.sum([phi_opt_i[l] for l in data_i])
 
@@ -924,8 +924,15 @@ def parse_commandline_options():
                     '\t\t  column-wise format as specified by "entries".\n'.expandtabs(4) +\
                     "\t\t  Any entry in the CSV file before row 'i' and column 'j' is discarded.\n".expandtabs(4) +\
                     "\t\t  Note that Python is zero-indexed, so the first row/column index will be 0.\n".expandtabs(4) +\
-                    "  c. Path to YAML file containing the outcomes\n"
-    epilogue += outcomes_desc
+                    "  c. Path to YAML file containing the outcomes\n\n"
+    quiet_desc = "Suppressing warnings:\n" +\
+                 "  --quiet can be a number between 0 & 3, with each number corresponding to different levels of suppression of printing to stdout.\n" +\
+                 "\t 0: Print the progress of optimization as well as warnings to stdout.\n".expandtabs(4) +\
+                 "\t 1: Suppress the progress of optimization, but print all warnings.\n".expandtabs(4) +\
+                 "\t 2: Suppress the progress of optimization and MinimaxOptimizationWarning, but print other warnings.\n".expandtabs(4) +\
+                 "\t 3: Suppress the progress of optimization as well as all warnings.\n".expandtabs(4) +\
+                 "  MinimaxOptimizationWarning is a warning specific to the computations performed in minimax method.\n".expandtabs(4)
+    epilogue += outcomes_desc + quiet_desc
     # TODO: add examples in epilogue
 
     # OptionParser by default strips newlines in epilog
@@ -943,7 +950,7 @@ def parse_commandline_options():
     parser.add_option("-y", "--yaml", action = "store", type = "string", dest = "yaml_filepath", help = "Path to the YAML file that contains the settings to construct the estimator")
     parser.add_option("-e", "--estimator", action = "store", type = "string", dest = "estimator_filepath", help = "Path to the JSON file that contains the estimator")
     parser.add_option("-o", "--outcomes", action = "store", type = "string", dest = "outcomes", help = "Three different formats are supported. See 'Formats for specifying outcomes' for details.")
-    parser.add_option("-q", "--quiet", action = "store_true", dest = "quiet", default = False, help = "Suppress the printing of progress of optimization to stdout")
+    parser.add_option("-q", "--quiet", action = "store", type = "int", dest = "quiet", default = 0, help = "Suppress the printing of progress of optimization and warning. See 'Suppressing warnings' for details.")
 
     # get options and arguments
     # arguments are not preceded by a hyphen; if the code requires an argument, these are compusary
@@ -962,10 +969,22 @@ def parse_commandline_options():
         estimator_filepath = Path(estimator_filepath)
 
     # check if printing must be suppressed
-    if options.quiet:
-        print_progress = False
-    else:
+    if options.quiet == 0:
+        # print progress of optimization and warnings to stdout
         print_progress = True
+    elif options.quiet == 1:
+        # only supress printing of progress to stdout
+        print_progress = False
+    elif options.quiet == 2:
+        # suppress printing of progress and MinimaxOptimizationWarning to stdout
+        print_progress = False
+        warnings.filterwarnings("ignore", category = MinimaxOptimizationWarning)
+    elif options.quiet == 3:
+        # suppress printing of progress and all warnings to stdout
+        print_progress = False
+        warnings.filterwarnings("ignore")
+    else:
+        raise ValueError("%s is an invalid entry for --quiet" %(options.quiet,))
 
     # one of YAML filepath or outcomes must be supplied
     yaml_filepath = options.yaml_filepath

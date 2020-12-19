@@ -11,8 +11,8 @@ from pathlib import PurePath
 import project_root # noqa
 from src.utilities.draw_plots import Plot_Manager
 
-def plot_JN_estimates_histogram(dirpath = './Data/', filename = 'fidelity_estimate_hist_confidence_interval_nq_4_N_192_Rlist_100_Ntest_1e4_numpovmlist_16_correctrandomseed.json',\
-                                fig_dirpath = './Images/', figname = 'fidelity_estimate_hist_confidence_interval_nq_4_N_192_Rlist_100_Ntest_1e4_numpovmlist_16_correctrandomseed',\
+def plot_JN_estimates_histogram(dirpath = './Data/', filename = 'fidelity_estimate_hist_confidence_interval_nq_4_N_192_Rlist_100_Ntest_1e4_numpovmlist_16.json',\
+                                fig_dirpath = './Images/', figname = 'fidelity_estimate_hist_confidence_interval_nq_4_N_192_Rlist_100_Ntest_1e4_numpovmlist_16',\
                                 fig_format = 'pdf', save_plot = False, return_plot_manager = False):
     """
         Plots the histogram of fidelity estimates obtained from Juditsky & Nemirovski's (JN) method. Also, plotted are the JN risk and the "ideal" (asymmetric) risk.
@@ -251,39 +251,6 @@ def plot_fidelity_bounds_pl_jn_sdp_roc(sdp_dirpath = './Data/', sdp_filename = '
     plot_manager.add_data(xdata = sdp_average_F_width_list, ydata = sdp_coverage_prob_list, marker = 's', markersize = 8, label = 'SDP')
     plot_manager.draw_plots(xlabel = 'Average width of bound', ylabel = 'Coverage probability', color_cycle = color_cycle, legend = 'pretty', save_fig = save_plot, filename = figname,\
                             dirname = fig_dirpath, fig_format = fig_format)
-
-    if return_plot_manager:
-        return plot_manager
-
-def plot_fidelity_bounds_pl_roc(pl_dirpath = './Data/', pl_filename = 'profile_likelihood_fidelity_roc_random_state_nq_3_Nsamples_1e3_numpovmlist_16.json',\
-                                fig_dirpath = './Images/', figname = 'pl_1e3samples_roc', fig_format = 'pdf', save_plot = False, return_plot_manager = False):
-    """
-        Plots an ROC plot for fidelity bounds obtained from SDP approach and Profile Likelihood on the same plot.
-    """
-    ### parse the data
-    # obtain quantities necessary for making the plot from the data file
-    # pathlib handles removing any additional "spurious" forward slashes: https://docs.python.org/3/library/pathlib.html
-    pl_filepath = PurePath('%s/%s' %(pl_dirpath, pl_filename))
-    with open(pl_filepath, 'r') as datafile:
-        pl_data_dict = json.load(datafile)
-
-    try:
-        pl_average_F_width_list = pl_data_dict['average_width_list']
-        pl_coverage_prob_list = pl_data_dict['coverage_prob_list']
-    except KeyError:
-        raise ValueError("Please ensure that the correct data file has been provided")
-    # discard (pontentially large) pl_data_dict
-    del pl_data_dict
-
-    ### draw the plot
-    plot_manager = Plot_Manager()
-
-    # use a color cycle without black color which is part of the default
-    color_cycle = ['#4C72B0', '#55A868', '#C44E52', '#8172B2', '#CCB974', '#64B5CD']
-
-    plot_manager.add_data(xdata = pl_average_F_width_list, ydata = pl_coverage_prob_list, title = '', xlabel = 'Average width of bound', ylabel = 'Coverage probability',\
-                          color_cycle = color_cycle, marker = 's', markersize = 8, save_fig = save_plot, filename = figname, dirname = fig_dirpath, fig_format = fig_format)
-    plot_manager.draw_plots()
 
     if return_plot_manager:
         return plot_manager
