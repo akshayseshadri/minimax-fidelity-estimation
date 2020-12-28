@@ -62,8 +62,8 @@ def plot_JN_estimates_histogram(dirpath = './Data/', filename = 'fidelity_estima
     # true fidelity with estimated "ideal" (asymmetric) confidence interval
     plot_manager.add_data(plot_type = 'errorbar', xdata = [F_actual], ydata = [0.15*N_samples], xerr = [[CI_estimate_asymm[0]], [CI_estimate_asymm[1]]], marker = 's',\
                           markersize = 10, markeredgewidth = 3, linewidth = 3, capsize = 10)
-    plot_manager.draw_plots(figsize = (12, 9), xlabel = r'$F$', ylabel = '', xlim = [0.85, 0.96], ylim = [0, 3e3], xticks = [0.855, 0.905, 0.955], save_fig = save_plot,\
-                            filename = figname, dirname = fig_dirpath, fig_format = fig_format)
+    plot_manager.draw_plots(figsize = (12, 9), xlabel = r'$F$', ylabel = '', xlabel_size = 42, xlim = [0.85, 0.96], ylim = [0, 3e3], xticks = [0.855, 0.905, 0.955],\
+                            save_fig = save_plot, filename = figname, dirname = fig_dirpath, fig_format = fig_format)
 
     if return_plot_manager:
         return plot_manager
@@ -142,7 +142,7 @@ def plot_risk_trend(plot_type = 'num_meas', dirpath = './Data/', filename = 'fid
         for (i, Ri) in enumerate(R_list_variation):
             plot_manager.add_data(xdata = N_R_list_variation[i], ydata = risk_N_variation[i], xlabel = r'$L R$', ylabel = r'$\widehat{\mathcal{R}}_*$', xticks = N_R_list_variation_ticks,\
                                   label = r'$R_l = %d$' %Ri, marker = marker_list[i])
-    plot_manager.draw_plots(color_cycle = 'seaborn', legend = 'pretty', save_fig = save_plot, filename = figname, dirname = fig_dirpath, fig_format = fig_format)
+    plot_manager.draw_plots(color_cycle = 'seaborn', legend = 'pretty', xlabel_size = 42, ylabel_size = 42, save_fig = save_plot, filename = figname, dirname = fig_dirpath, fig_format = fig_format)
 
     if return_plot_manager:
         return plot_manager
@@ -246,11 +246,20 @@ def plot_fidelity_bounds_pl_jn_sdp_roc(sdp_dirpath = './Data/', sdp_filename = '
     # color cycle same as seaborn but with a different positioning of colors
     color_cycle = ['#4C72B0', '#C44E52', '#55A868', '#8172B2', '#CCB974', '#64B5CD']
 
+    # add data for all PL, minimax method and SDP
     plot_manager.add_data(xdata = pl_average_F_width_list, ydata = pl_coverage_prob_list, marker = 'o', markersize = 8, label = 'PL')
     plot_manager.add_data(plot_type = 'discrete', xdata = jn_confidence_interval, ydata = jn_coverage_prob, marker = '*', markersize = 12, label = 'Minimax')
-    plot_manager.add_data(xdata = sdp_average_F_width_list, ydata = sdp_coverage_prob_list, marker = 's', markersize = 8, label = 'SDP')
-    plot_manager.draw_plots(xlabel = 'Average width of bound', ylabel = 'Coverage probability', color_cycle = color_cycle, legend = 'pretty', save_fig = save_plot, filename = figname,\
-                            dirname = fig_dirpath, fig_format = fig_format)
+    plot_manager.add_data(xdata = sdp_average_F_width_list, ydata = sdp_coverage_prob_list, marker = 's', markersize = 8, label = 'SDP',\
+                          xlabel = 'Average width of bound', ylabel = 'Coverage probability', legend = 'pretty')
+    # add inset for the top part of the data
+    plot_manager.add_data(xdata = pl_average_F_width_list, ydata = pl_coverage_prob_list, marker = 'o', markersize = 8, xlim = (0.10, 0.16), ylim = (0.95, 1.04),\
+                          inset_axes = {'bounds': [0.85, 0.3, 0.25, 0.3], 'indicate_inset_zoom': True})
+    plot_manager.add_data(plot_type = 'discrete', xdata = jn_confidence_interval, ydata = jn_coverage_prob, marker = '*', markersize = 12, xlim = (0.10, 0.16), ylim = (0.95, 1.04),\
+                          inset_axes = {'bounds': [0.85, 0.3, 0.25, 0.3], 'indicate_inset_zoom': True})
+    plot_manager.add_data(xdata = sdp_average_F_width_list, ydata = sdp_coverage_prob_list, marker = 's', markersize = 8, xlim = (0.10, 0.16), ylim = (0.95, 1.04),\
+                          inset_axes = {'bounds': [0.85, 0.3, 0.25, 0.3], 'indicate_inset_zoom': True}, xlabel = '', ylabel = '', xticks = [], yticks = [])
+    # make the plot
+    plot_manager.draw_plots(figsize = (19, 6), xlabel_size = 42, ylabel_size = 42, color_cycle = color_cycle, save_fig = save_plot, filename = figname, dirname = fig_dirpath, fig_format = fig_format)
 
     if return_plot_manager:
         return plot_manager

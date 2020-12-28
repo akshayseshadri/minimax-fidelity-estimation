@@ -50,6 +50,8 @@ class Plot_Manager():
         self.ax  = None
         # in case twin-axis needs to be used
         self.axt = None
+        # in case inset needs to be made
+        self.axin = None
 
         # list storing the figure and axes objects for all the plots
         self.fig_dict = dict()
@@ -85,11 +87,11 @@ class Plot_Manager():
 
         # default values of parameters that can be used to modify the appearance of the plots
         self.default_params = {'figsize': (18, 6), 'plot_type': 'lineplot', 'subplots': (1, 1, 1), 'fmt': '', 'linestyle': '-', 'marker': None, 'title': '',\
-                               'xlabel': '', 'ylabel': '', 'xlim': [], 'ylim': [], 'hold': True, 'grid': False, 'plot_params': {}, 'label': '', 'legend': False,\
+                               'xlabel': '', 'ylabel': '', 'xlim': None, 'ylim': None, 'hold': True, 'grid': False, 'plot_params': {}, 'label': '', 'legend': False,\
                                'color_cycle': self.color_cycle, 'color': None, 'xticks': None, 'yticks': None, 'xticklabels': None, 'yticklabels': None,\
                                'xtick_params': {'labelsize': 38, 'pad': 18, 'direction': 'out', 'length': 6, 'width': 2},\
                                'ytick_params': {'labelsize': 38, 'pad': 10, 'direction': 'out', 'length': 6, 'width': 2},\
-                               'xlabel_size': 30, 'ylabel_size': 30, 'title_size': 30, 'linewidth': 3, 'markersize': 15, 'yscale': None, 'twinx': False,\
+                               'xlabel_size': 30, 'ylabel_size': 30, 'title_size': 30, 'linewidth': 3, 'markersize': 15, 'yscale': None, 'twinx': False, 'inset_axes': None,\
                                'style': 'seaborn-white', 'scientific_notn': {'scilimits': (-2, 3), 'offsetsize': 24}, 'show_data_key': False, 'save_fig': False,\
                                'dirname': './', 'filename': None, 'fig_format': 'pdf', 'bbox_inches': 'tight', 'show_fig': True}
 
@@ -276,6 +278,10 @@ class Plot_Manager():
                 - grid (specifies whether to include a grid in the plot)
                 - yscale (specifies which y-axis scale to apply ("linear", "log", "symlog", etc.))
                 - twinx (specifies if the plot should have two y-axes sharing the x-axis)
+                - inset_axes is a dictionary used to create an inset plot. The dictionary accepts the keys:
+                    -- any parameter supplied to matplotlib.axes.Axes.inset_axes
+                    -- 'new' (optional parameter; if True, a new inset_axes is created instead of using one that may have been previously created; default is False)
+                    -- 'indicate_inset_zoom' (optional parameter; if True, lines connecting the inset to the location in the parent axes are drawn)
                 - style (specifies what rc style or list of styles to use for the plots (can choose from many defaults or provide path to custom style file;
                          list of mpl provided style files can be obtained from plt.style.available; styles can be combined, with rightmost taking precedence))
                 - scientific_notn (a dictionary of options or False to turn off; the key 'scilimits' with value (m, n) specifies the range (10^m, 10^n) outside which 10^x notation is used; set to (0, 0) to use it always;
@@ -468,7 +474,7 @@ class Plot_Manager():
                     data_params = self._parse_kwargs(kwargs_param)
                 else:
                     # use the arguments supplied by each data_key
-                    # in case of any overlap in dkta_params and kwargs_param, the value supplied in kwargs_param takes precedence
+                    # in case of any overlap in data_params and kwargs_param, the value supplied in kwargs_param takes precedence
                     data_params = self._parse_kwargs(kwargs_param, base_values = data_key)
 
                 # parse the arguments and plot the data
@@ -542,6 +548,24 @@ class Plot_Manager():
             else:
                 ax = ax.twinx()
 
+        # create an inset axes if required
+        # the inset axes is created from the "parent" axes object, and plots are drawn on the inset axes
+        if _dp.inset_axes is not None:
+            # determines if a new inset should be created or if the previous inset (if it exists) should be used for plotting
+            try:
+                new_inset = bool(_dp.inset_axes['new'])
+                del _dp.inset_axes['new']
+            except KeyError:
+                new_inset = False
+
+            if (self.axin is not None) and (not new_inset):
+                ax = self.axin
+            else:
+                # input a dictionary with all keys in _dp.inset_axes except indicate_inset_zoom
+                # the returned inset axes is named ax, overriding the parent axes object
+                # the parent axes object can be referred to later using self.ax
+                ax = ax.inset_axes(**{key: value for (key, value) in _dp.inset_axes.items() if not key == 'indicate_inset_zoom'})
+
         # save the figure and axes objects
         self.fig_dict[data_key] = fig
         self.ax_dict[data_key] = ax
@@ -549,14 +573,20 @@ class Plot_Manager():
         # store the figure and axes object for reuse if hold is True
         if _dp.hold:
             self.fig = fig
-            if _dp.twinx:
-                self.axt = ax
+            if _dp.twinx or _dp.inset_axes is not None:
+                # inset_axes is given precedence over twinx because the twinx axes is "converted to" inset_axes if latter is not None
+                # this is to account for the fact that we will have to draw an inset for the twinx axes if twinx is True and inset_axes is not None
+                if _dp.inset_axes is not None:
+                    self.axin = ax
+                else:
+                    self.axt = ax
             else:
                 self.ax  = ax
         else:
             self.fig = None
             self.ax = None
             self.axt = None
+            self.axin = None
 
         # add the key to the title if required
         if _dp.show_data_key:
@@ -570,24 +600,24 @@ class Plot_Manager():
         ax.set_ylabel(str(_dp.ylabel), fontsize = _dp.ylabel_size)
 
         # set limit for x and y axes
-        if _dp.xlim:
+        if _dp.xlim is not None:
             ax.set_xlim(_dp.xlim[0], _dp.xlim[1])
-        if _dp.ylim:
+        if _dp.ylim is not None:
             ax.set_ylim(_dp.ylim[0], _dp.ylim[1])
 
         # set x and y ticks
-        if _dp.xticks:
+        if _dp.xticks is not None:
             ax.set_xticks(_dp.xticks)
-        if _dp.yticks:
+        if _dp.yticks is not None:
             ax.set_yticks(_dp.yticks)
 
         # set x and y tick labels (and font properties)
-        if _dp.xticklabels:
+        if _dp.xticklabels is not None:
             if type(_dp.xticklabels) in [list, tuple]:
                 ax.set_xticklabels(labels = _dp.xticklabels)
             elif type(_dp.xticklabels) == dict:
                 ax.set_xticklabels(**_dp.xticklabels)
-        if _dp.yticklabels:
+        if _dp.yticklabels is not None:
             if type(_dp.yticklabels) in [list, tuple]:
                 ax.set_yticklabels(labels = _dp.yticklabels)
             elif type(_dp.yticklabels) == dict:
@@ -656,6 +686,19 @@ class Plot_Manager():
             ax.errorbar(xdata, ydata, **_dp.plot_params)
         else:
             raise ValueError("Please specify a valid plot type. Currently supported options are %s" %(' '.join(self.valid_plot_types.keys()),))
+
+        # create lines connecting the inset with the original location of the image
+        if _dp.inset_axes is not None:
+            try:
+                indicate_inset_zoom = bool(_dp.inset_axes['indicate_inset_zoom'])
+            except KeyError:
+                indicate_inset_zoom = False
+
+            if indicate_inset_zoom:
+                if _dp.twinx:
+                    (self.axt).indicate_inset_zoom(ax)
+                else:
+                    (self.ax).indicate_inset_zoom(ax)
 
         # set the legend for the plot, and set zorder for legend if provided (largest zorder is on top); zorder works only within this axis
         if _dp.legend:

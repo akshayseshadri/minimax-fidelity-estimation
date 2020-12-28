@@ -613,14 +613,11 @@ def generate_POVM(n = 2, num_povm = 2, projective = False, flatten = True, isCom
             else:
                 Ei = np.random.randn(n, n)
             Ei = np.conj(Ei.T).dot(Ei)                              # obtain a positve semi-definite matrix
-            if i == num_povm - 1:
-                Ei += np.eye(n)                                     # ensures that E_{num_povm - 1} is positive definite
             POVM.append(Ei)
 
         # to generate a POVM, we need the operators to sum to identity
-        # If S = sum_i E_i, then we can redefine E_i = S^{-1/2} E_i S^{-1/2}, so that sum_i E_i = I (I found this nice idea in Definiion 5.8 of
+        # If S = sum_i E_i, then we can redefine E_i = S^{-1/2} E_i S^{-1/2}, so that sum_i E_i = I (see Definiion 5.8 of
         # 'Random Positive Operator Valued Measures' (arxiv:1902.04751))
-        # To ensure that S is invertible, we add identity matrix to one of the E_i's, which makes it (and therefore S) positive definite
         S = np.sum(POVM, axis = 0)
         # now obtain S^{-1/2} through spectral decomposition
         S_eigvals, S_eigvecs = np.linalg.eigh(S)

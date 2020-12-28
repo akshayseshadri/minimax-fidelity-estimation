@@ -131,8 +131,8 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
 
         # initialization for maximize_Phi_r_density_matrices_multiple_measurements (to be used specifically for find_alpha_saddle_point_fidelity_estimation)
         if not random_init:
-            # we choose lambda_1 = lambda_2 = 1, which corresponds to sigma_1 = sigma_2 = rho
-            self.mpdm_lambda_ds_o = np.array([1, 1])
+            # we choose lambda_1 = lambda_2 = 0.9, which corresponds to sigma_1 = 0.9 rho + 0.1 rho_1_perp, sigma_2 = 0.9 rho + 0.1 rho_2_perp
+            self.mpdm_lambda_ds_o = np.array([0.9, 0.9])
         else:
             # take lambda_1 and lambda_2 as some random number between 0 and 1
             self.mpdm_lambda_ds_o = np.random.random(size = 2)
@@ -498,19 +498,12 @@ def generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, ep
             # the phase is incorporated after the measurement outcomes are obtained
             phase = 1
 
-        # generate POVM depending on whether projectors on subpace or projectors on each eigenvector is required
-        if num_povm == 2:
-            # the Pauli operator that needs to be measured
-            Pauli_operator = phase * generate_Pauli_operator(nq, pauli)[0]
-
-            # if W is the Pauli operator and P_+ and P_- are projectors on to the eigenspaces corresponding to +1 (+i) & -1 (-i) eigenvalues, then
-            # l P_+ - l P_- = W, and P_+ + P_- = \id. We can solve for P_+ and P_- from this. l \in {1, i}, depending on the pase.
-            # l = 1 or i can be obtained from the phase as sgn(phase) * phase, noting that phase is one of +1, -1, +i or -i
-            P_plus  = 0.5*(np.eye(n, dtype = 'complex128') + Pauli_operator / (phase * np.sign(phase)))
-            P_minus = 0.5*(np.eye(n, dtype = 'complex128') - Pauli_operator / (phase * np.sign(phase)))
-
-            POVM = [P_plus.ravel(), P_minus.ravel()]
-        elif num_povm == n:
+        # generate POVM depending on whether projectors on subpace or projectors on each eigenvector is required 
+        # note that when n = 2, subspace and eigenbasis projectors match, in which case we give precedence to eigenbasis projection
+        # this is because in the next block after measurements are generated, we check if num_povm is n and if that's true include phase
+        # but if subspace was used first, then phase would already be included and this would be the same operation twice
+        # so we use check for eigenbasis projection first
+        if num_povm == n:
             # ensure that the supplied Pauli operator is a string composed of 0, 1, 2, 3
             if type(pauli) in [int, np.int64]:
                 if pauli > 4**nq - 1:
@@ -547,6 +540,17 @@ def generate_sampled_pauli_measurement_outcomes(rho, sigma, R, num_povm_list, ep
             # create the POVM by transforming the computational basis to given Pauli basis
             # the phase doesn't matter when projecting on to the eigenbasis; the eigenvalues are +1, -1 or +i, -i, depending on the phase but we can infer that upon measurement
             POVM = [transform_matrix.dot(Ei).dot(np.conj(transform_matrix.T)).ravel() for Ei in computational_basis_POVM]
+        elif num_povm == 2:
+            # the Pauli operator that needs to be measured
+            Pauli_operator = phase * generate_Pauli_operator(nq, pauli)[0]
+
+            # if W is the Pauli operator and P_+ and P_- are projectors on to the eigenspaces corresponding to +1 (+i) & -1 (-i) eigenvalues, then
+            # l P_+ - l P_- = W, and P_+ + P_- = \id. We can solve for P_+ and P_- from this. l \in {1, i}, depending on the pase.
+            # l = 1 or i can be obtained from the phase as sgn(phase) * phase, noting that phase is one of +1, -1, +i or -i
+            P_plus  = 0.5*(np.eye(n, dtype = 'complex128') + Pauli_operator / (phase * np.sign(phase)))
+            P_minus = 0.5*(np.eye(n, dtype = 'complex128') - Pauli_operator / (phase * np.sign(phase)))
+
+            POVM = [P_plus.ravel(), P_minus.ravel()]
         else:
             raise ValueError("Pauli measurements with only 2 or 'n' POVM elements are supported")
 
