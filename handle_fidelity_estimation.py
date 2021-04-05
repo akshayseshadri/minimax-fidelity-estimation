@@ -517,11 +517,11 @@ def compute_fidelity_estimate_risk(outcomes, estimator_filename, estimator_dir =
         2. If Randomized Pauli measurement scheme was used to construct the estimator, the eigenvalues (+1, -1) must first
            be converted to indices (0, 1), before supplying it to 'compute_fidelity_estimate_risk' function.
            'convert_Pauli_eigvals_to_indices' function can be used for this purpose to pre-process the outcomes.
+           Furthermore, for this measurement scheme, one should put all the outcomes into a single list and not into a different list for each Pauli.
         3. 'convert_Pauli_eigvals_to_indices' can also be used for other Pauli measurements where projection on subspace is
            involved. Note, however, that if these projectors were manually supplied in the YAML settings file, then there is
            no guarantee that the conversion will be correct.
         4. In case path to a YAML or a CSV file is provided, the file must have the extension '.yaml' or '.csv', respectively.
-        # TODO: Mention for RPM that all outcomes should be put into one list and not a different list for each Pauli.
         # TODO: For Pauli measurements specified using YAML file, mention the order of eigenvector indices.
         # TODO: Read outcomes from a .npy file? I think this won't be very helpful.
 
@@ -820,9 +820,6 @@ def show_yaml_file_instructions():
                                                   Note that we need ensure that the number of Pauli operators are the same for all the generators.
                                                       For example, if we want to measure X on the third qubit for a 3-qubit stabilizer state,
                                                       we must specify IIX. Simply giving X will throw an error.
-                    f. Random state format     : - random: nq
-                                                  where 'nq' denotes the number of qubits in the random state.
-                        TODO: Either remove the random state or include an option for random seed because it's not reproducible otherwise to generate outcomes.
                 2. Three different options are available for performing Pauli measurements, as listed below.
                     a. Pauli operators supplied as a list of strings:
                         The Pauli operators to be measured can be specified as a list of strings as follows.
@@ -844,11 +841,10 @@ def show_yaml_file_instructions():
                                 - pauli: [FLS, N, eigenbasis/subspace]
                                 where 'N' is the number of (non-identity) Pauli operators to be measured.
                                       eigenbasis
+                       TODO: If FLS is being used, the user needs to be informed about the order in which the Pauli measurements are generated.
                     c. Randomized Pauli measurement scheme (given in section II.E., PRA):
                             Format:
                                 - pauli: [RPM]
-                    TODO: If FLS is being used, the user needs to be informed about the order in which the Pauli measurements are generated.
-                3. Corresponding to each option, # TODO: Can't remember why I started writing this.
 
             Additional notes:
                 We can mix & match elements from different formats to suit our needs.
@@ -883,7 +879,7 @@ def parse_commandline_options():
                                       OR
                                         "{'csv_file_path': Path to CSV file, 'entries': 'row'/'column', 'start': (row index, column index)}"
                                 c. Path to YAML file containing the outcomes
-            -q or --quiet     : If specified, the progress of optimization is not printed (optional argument, default: False)
+            -q or --quiet     : If specified, the progress of optimization is not printed (optional argument, default: 0)
             -h or --help      : If specified, prints the help. Other options are ignored.
 
         Intended commandline usage:
@@ -891,7 +887,7 @@ def parse_commandline_options():
             2. --outcomes and --estimator are supplied         : Use the saved estimator file and specified the outcomes file to compute the fidelity estimate.
             3. --yaml, --outcomes and --estimator are supplied : Use the YAML settings file to construct the estimator, save it in the path specified by 'estimator',
                                                                  and use the outcomes file to compute the fidelity estimate.
-            4. --print                                         : Optional argument that can be supplied with either 1, 2, 3 above that specifies whether progress is printed.
+            4. --print                                         : Optional argument that can be supplied with either 0, 1, 2, 3 above that specifies whether progress is printed.
             5. --help                                          : Prints the help. Other options are ignored.
 
             Any other combination raises an error.
@@ -904,7 +900,7 @@ def parse_commandline_options():
                "  2. --outcomes and --estimator are supplied\n\tUse the saved estimator file and specified the outcomes file to compute the fidelity estimate.\n" +\
                "  3. --yaml, --outcomes and --estimator are supplied\n\tUse the YAML settings file to construct the estimator, save it in the path specified by 'estimator',\n" +\
                "\tand use the outcomes file to compute the fidelity estimate.\n" +\
-               "  4. --quiet\n\tOptional argument that can be supplied with 1, 2, 3 to suppress printing of optimization progress.\n" +\
+               "  4. --quiet\n\tOptional argument that can be supplied with 0, 1, 2, 3 to suppress printing of optimization progress.\n" +\
                "  5. --help\n\tPrints the help. Other options are ignored if help is specified.\n" +\
                "  **Any other combination will raise an error.**\n\n"
     # description of different formats to specify --outcomes
