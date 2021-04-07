@@ -887,7 +887,7 @@ def parse_commandline_options():
             2. --outcomes and --estimator are supplied         : Use the saved estimator file and specified the outcomes file to compute the fidelity estimate.
             3. --yaml, --outcomes and --estimator are supplied : Use the YAML settings file to construct the estimator, save it in the path specified by 'estimator',
                                                                  and use the outcomes file to compute the fidelity estimate.
-            4. --print                                         : Optional argument that can be supplied with either 0, 1, 2, 3 above that specifies whether progress is printed.
+            4. --quiet                                         : Optional argument that can be supplied with either 0, 1, 2, 3 above that specifies whether progress is printed.
             5. --help                                          : Prints the help. Other options are ignored.
 
             Any other combination raises an error.

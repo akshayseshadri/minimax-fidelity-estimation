@@ -26,7 +26,7 @@ Install [Anaconda/Miniconda](https://conda.io/projects/conda/en/latest/index.htm
 This will create an environment with the name `minimax_fidelity`. To start using this environment, run `conda activate minimax_fidelity`.
 
 # Usage
-The code can be interactively via the Python/IPython console or through the commandline. We provide instructions for both these.
+The code can be used interactively via the Python/IPython console or through the commandline. We provide instructions for both these scenarios.
 
 The typical workflow is as follows:
 1. Specify the target state, measurement settings, and the confidence level through a YAML file. ([YAML](https://pyyaml.org/) is a human-readable markup language, which can be parsed by a computer.)
@@ -77,7 +77,7 @@ compute_fidelity_estimate_risk(outcomes, estimator_filename, estimator_dir = './
 |            |    1. A list of lists/arrays, with each list/array corresponding to the outcomes of a particular POVM, listed in the same order as YAML settings file.|
 |            | 2. A path to a YAML file (with `.yaml` extension) that lists the outcomes corresponding to each POVM.|
 |            | 3. A path to a CSV file (with `.csv` extension) that lists the outcomes for each POVM in a separate row. More customization is possible.|
-|            | A detailed description of how to specify outcomes is given in section [Specifying outcomes](#outcomes)|
+|            | A detailed description of how to specify outcomes is given in the section [Specifying outcomes](#outcomes)|
 | `estimator_filename` | Name of the JSON file (with `.json` extension) containing the constructed estimator.|
 | `estimator_dir` | Name of the directory containing the estimator file. The defult value is the sub-directory `estimator_files` of the project (root) directory.|
 
@@ -89,7 +89,7 @@ python handle_fidelity_estimation.py [options]
 ```
 
 #### Options:
-| Argument       | Description                                    |
+| Option         | Description                                    |
 | :---:          | :---                                           |
 |-y, --yaml      | Path to the YAML file that contains the settings to construct the estimator |
 |-e, --estimator | Path to the JSON file that contains the estimator |
@@ -264,9 +264,9 @@ random_init: `True` or `False` (optional argument, default: `False`)
 ------------------------------------------------------------
 
 ## <a name="additional_notes">Additional notes:
-We can mix & match elements from different formats to suit our needs.\
+We can mix & match elements from different formats to suit our needs.
 - For example, suppose we have a target state in the form of a list called `target_state_list`, some other specialized measurements
-  `POVM_1`, ..., `POVM_N`, also in the form of a list. In addition, we want to do Pauli measurements `W1`, ..., `Wm`. Then, we can write\
+  `POVM_1`, ..., `POVM_N`, also in the form of a list. In addition, we want to do Pauli measurements `W1`, ..., `Wm`. Then, we can write
 
   target: target_state_list\
   POVM_list:\
@@ -275,7 +275,9 @@ We can mix & match elements from different formats to suit our needs.\
       &nbsp; &nbsp; &nbsp; &nbsp; .\
       &nbsp; &nbsp; &nbsp; &nbsp; .\
       &nbsp; &nbsp; &nbsp; &nbsp; \- POVM_N\
-      &nbsp; &nbsp; &nbsp; &nbsp; \- pauli: [W1, ..., Wm]
+      &nbsp; &nbsp; &nbsp; &nbsp; \- pauli: [W1, ..., Wm]\
+   R_list: a list of number of repetitions of each POVM given in POVM_list, in that same order\
+   confidence_level: a value in (0.75, 1), with end-points excluded
       
   `W1`, ..., `Wm` are strings specifying the required Pauli measurements.
 
@@ -308,7 +310,7 @@ The outcomes argument in `compute_fidelity_estimate_risk` function (see [interac
 
 -------------
 
-Notes:
+#### Notes:
 1. If `outcome_i` denotes the array of outcomes for `POVM_i = {E_1, ..., E_Ni}`, then the entries of the `outcomes_i`
    must be `0`, ..., `Ni - 1`, with `0` pointing to the POVM element `E_1`, `1` pointing to the POVM element `E_2`, and so on.
    *Conforming to this ordering is necessary*, else spurious results can be expected. We use a zero-index following Python convention.
@@ -321,6 +323,13 @@ Notes:
 4. In case path to a YAML or a CSV file is provided, the file must have the extension `.yaml` or `.csv`, respectively.
 
 -------------
+
+# Examples
+A Jupyter notebook called `fidelity_estimation_examples.ipynb` with some examples (using the iteractive feature) can be found in the `examples` directory.\
+The `examples` directory also contains the directories `yaml_files`, `estimator_files`, and `outcome_files`. These directories have files that were used for the examples given in the Jupyter notebook.
+
+# License
+`TODO`
 
 # Addendum
 Please cite `TODO` if you are using this code for estimating fidelity or expectation values.
