@@ -37,8 +37,8 @@ def project_on_box(v, l, u):
 
 class Pauli_Sampler_Fidelity_Estimation_Manager():
     """
-        Computes the Juditsky & Nemirovski estimator and risk for stabilizer states when measurements
-        are performed using the minimax optimal strategy for stabilizer states.
+        Computes the Juditsky & Nemirovski estimator and risk for pure target states when measurements
+        are performed as per the randomized Pauli measurement strategy described in Box II.1 of PRA submission.
 
         In general, this involves finding a saddle point of the function
 
@@ -67,18 +67,21 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
 
         The saddle point value \Phi*(r) gives an upper bound for the confidence interval within which the error lies.
 
-        The above procedure described can be expensive in large dimensions. For the case of stabilizer states with minimax optimal measurement strategy,
+        The above procedure described can be expensive in large dimensions. For the case of randomized Pauli measurement (RPM) strategy,
         the algorithms are specialized so that very large dimensions can be handled.
 
-        The minimax optimal (binary) measurement strategy for stabilizer states consists of uniformly randomly sampling from the stabilizer group (all elements
-        except the identity) and measuring them (just knowledge of the eigenvalue, whether +1 or -1, suffices).
+        For arbitrary pure target states, the RPM strategy corresponds to randomly sampling Pauli operators according to some predetermined
+        sampling probability, measuring these Pauli operators, and recording their outcomes (+1 or -1 eigenavalue).
+        For stabilizer states, this measurement strategy reduces to uniformly randomly sampling from the stabilizer group (all elements
+        except the identity) and measuring them.
     """
     def __init__(self, n, R, NF, epsilon, epsilon_o, tol = 1e-6, random_init = False, print_progress = True):
         """
             Assigns values to parameters and defines and initializes functions.
 
-            The estimator is independent of the actual stabilizer state used for the chosen measurement strategy. It depends only on the dimension
-            of the stabilizer state, the number of repetitions of the measurement, and the confidence level.
+            The estimator depends on the dimension of the target state, the number of repetitions of the measurement, a normalization factor,
+            and the confidence level.
+            It is independent of the actual target state used for the RPM strategy, except through the normalization factor described below.
 
             The small parameter epsilon_o required to formalize Juditsky & Nemirovski's approach is used only in the optimization for finding alpha.
             It is not used in finding the optimal sigma_1 and sigma_2 because those are computed "by hand".
@@ -116,7 +119,7 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
         self.omega1 = 0.5 * (n + NF - 1) / NF
         self.omega2 = 0.5 * (NF - 1) / NF
 
-        # lower bound for the (classical) fidelity, used in theory for optimization of stabilizer states
+        # lower bound for the (classical) fidelity, used in the theory for optimization
         self.gamma = (epsilon/2)**(2/R)
 
         # minimum number of repetitions required for a risk less than 0.5
@@ -365,7 +368,7 @@ class Pauli_Sampler_Fidelity_Estimation_Manager():
             We use the convention that the ith POVM outcomes are labelled as \Omega_i = {0, ..., N_m - 1}, as Python is zero-indexed.
 
             The above is the general procedure to obtain Juditsky & Nemirovski's estimator.
-            For the special case of target stabilizer states and optimial minimax measurement strategy, we simplify the above algorithms
+            For the special case of randomized Pauli measurement strategy, we simplify the above algorithms
             so that we can compure the estimator for very large dimensions.
         """
         # find x, y, and alpha components of the saddle point
@@ -634,7 +637,7 @@ def fidelity_estimation_pauli_random_sampling(target_state = 'random', nq = 2, n
 
         Checks are not performed to ensure that the given set of generators indeed form generators.
 
-        If verify_estimator is true, the estimator constructed for the special case of minimax optimal measurement strategy for stabilizers is checked with the general construction
+        If verify_estimator is true, the estimator constructed for the special case of randomized Pauli measurement strategy is checked with the general construction
         for Juditsky & Nemirovski's estimator.
     """
     # set the random seed once here and nowhere else
@@ -647,7 +650,7 @@ def fidelity_estimation_pauli_random_sampling(target_state = 'random', nq = 2, n
     n  = int(2**nq)
 
     ### create the states
-    # create the target stabilizer state from the specified generators
+    # create the target state from the specified generators
     target_state = str(target_state).lower()
     if target_state in ['ghz', 'w', 'cluster']:
         state_args_dict = {'ghz': {'d': 2, 'M': nq}, 'w': {'nq': nq}, 'cluster': {'nq': nq}}
@@ -666,7 +669,7 @@ def fidelity_estimation_pauli_random_sampling(target_state = 'random', nq = 2, n
     else:
         raise ValueError("Please specify a valid target state. Currently supported arguments are GHZ, W, Cluster, stabilizer and random.")
 
-    # apply noise to the stabilizer state to create the actual state ("prepared in the lab")
+    # apply noise to the target state to create the actual state ("prepared in the lab")
     if not ((noise is None) or (noise is False)):
         # the target state decoheres due to noise
         if type(noise) in [int, float]:
