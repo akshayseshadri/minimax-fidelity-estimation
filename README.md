@@ -90,7 +90,7 @@ A Jupyter notebook called `fidelity_estimation_examples.ipynb` with some example
 The `examples` directory also contains the directories `yaml_files`, `estimator_files`, and `outcome_files`. These directories have files that were used for the examples given in the Jupyter notebook.
 
 # License
-`TODO`
+We release this software under the `MIT License`. See `LICENSE` file.
 
 # Notes
 Please cite `TODO` if you are using this code for estimating fidelity or expectation values.
