@@ -31,7 +31,7 @@ The typical workflow is as follows:
 We give an outline of interactive and commandline usage. See `documentation.md` for a detailed description.
 
 ## <a name="interactive">Interactive usage:
-1. Import the `handle_fildeity_estimation.py` module from a Python/IPython console.
+1. Import the `handle_fidelity_estimation.py` module from a Python/IPython console.
 2. Use the function `construct_fidelity_estimator` to construct a fidelity estimator from  settings specified using a YAML file.
 3. Use the function `construct_fidelity_estimate_risk` to estimate the fidelity from measurement outcomes and the constructed estimator.
 
@@ -81,12 +81,12 @@ python handle_fidelity_estimation.py [options]
 *Any other combination will raise an error.*
 
 # Documentation
-See `documentation.md` for a detailed description of the functionalities.\
+See [`documentation.md`](documentation.md) for a detailed description of the functionalities.\
 This contains information about the arguments to be supplied to the functions and the commandline options.\
 Different formats for creating the YAML file and specifying the outcomes are also given in the documentation.
 
 # Examples
-A Jupyter notebook called `fidelity_estimation_examples.ipynb` with some examples (using the interactive feature) can be found in the `examples` directory.\
+A Jupyter notebook called [`fidelity_estimation_examples.ipynb`](examples/fidelity_estimation_examples.ipynb) with some examples (using the interactive feature) can be found in the `examples` directory.\
 The `examples` directory also contains the directories `yaml_files`, `estimator_files`, and `outcome_files`. These directories have files that were used for the examples given in the Jupyter notebook.
 
 # License
