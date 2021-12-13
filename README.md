@@ -5,7 +5,7 @@ This package can be used for fidelity estimation using the minimax method.
 The module `handle_fidelity_estimation.py` provides a "frontend" for using the package. This code can be used to implement the minimax method from either the Python console or from a terminal.\
 The code makes it easy to specify the target state and measurement settings in order to estimate the fidelity.
 
-For a quick introduction, check the examples given in the IPython notebook `fidelity_estimation_examples.ipynb`.
+For a quick introduction, check the examples given in the IPython notebook [`fidelity_estimation_examples.ipynb`](examples/fidelity_estimation_examples.ipynb).
 
 # Installation and Dependencies
 The code can be used "out of the box". No installation is necessary.\
@@ -21,7 +21,7 @@ The version number using which the code was tested is written in brackets, next 
 - jupyter-notebook
 
 # Usage
-The code can be used interactively via the Python/IPython console or through the commandline.
+The code can be used interactively via the Python/IPython console or from the commandline.
 
 The typical workflow is as follows:
 1. Specify the target state, measurement settings, and the confidence level through a YAML file. ([YAML](https://pyyaml.org/) is a human-readable markup language, which can be parsed by a computer.)
@@ -33,7 +33,7 @@ We give an outline of interactive and commandline usage. See `documentation.md` 
 ## <a name="interactive">Interactive usage:
 1. Import the `handle_fidelity_estimation.py` module from a Python/IPython console.
 2. Use the function `construct_fidelity_estimator` to construct a fidelity estimator from  settings specified using a YAML file.
-3. Use the function `construct_fidelity_estimate_risk` to estimate the fidelity from measurement outcomes and the constructed estimator.
+3. Use the function `compute_fidelity_estimate_risk` to estimate the fidelity from measurement outcomes and the constructed estimator.
 
 ### Constructing the estimator:
 ```
@@ -44,7 +44,7 @@ construct_fidelity_estimator(yaml_filename, estimator_filename,\
 
 ---------
 
-**Note**: The risk is computed along with the estimator, *before* the outcomes are supplied. This risk is printed along with the estimate when outcomes are supplied. This risk is stored in the JSON file containing the estimator.
+**Note**: The risk is computed along with the estimator, *before* the outcomes are supplied. It is stored in the same JSON file as the estimator. This risk is printed along with the estimate when outcomes are supplied.
 
 ---------
 
@@ -90,7 +90,8 @@ A Jupyter notebook called [`fidelity_estimation_examples.ipynb`](examples/fideli
 The `examples` directory also contains the directories `yaml_files`, `estimator_files`, and `outcome_files`. These directories have files that were used for the examples given in the Jupyter notebook.
 
 # License
-We release this software under the `MIT License`. See `LICENSE` file.
+We release this software under the open source `MIT License`. See the [`LICENSE`](LICENSE) file.
 
 # Notes
-Please cite `TODO` if you are using this code for estimating fidelity or expectation values.
+This code implements the minimax method detailed in `TODO`.
+Please consider citing our work if you are using this code for estimating fidelity or expectation values.
