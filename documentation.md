@@ -105,7 +105,7 @@ python handle_fidelity_estimation.py [options]
 
 # <a name="yaml">YAML settings file
 The target state & measurement settings can be supplied in many different ways, and the user can use the one that is most convenient.\
-We provide three basic formats that can be used to YAML file. One can mix and match elements from these different formats as necessary (see [additonal notes](#additional_notes) for an example).
+We provide three basic formats that can be used to YAML file. One can mix and match elements from these different formats as necessary (see [additional notes](#additional_notes) for an example).
 
 **Note**: It is important that the keys (target, POVM_list, R_list, confidence_level) in the YAML file are spelt as given, including the case (i.e., lower case or upper case) of the characters.
 

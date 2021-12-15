@@ -28,7 +28,7 @@ The typical workflow is as follows:
 2. Create an estimator for fidelity using `handle_fidelity_estimation.py` and the YAML file. This estimator is stored in a [JSON](https://www.json.org/json-en.html) file, and can be reused in the future for the same settings.
 3. Supply the outcomes to `handle_fidelity_estimation.py` along with the JSON file for the estimator to obtain the fidelity estimate and the risk.
 
-We give an outline of interactive and commandline usage. See `documentation.md` for a detailed description.
+We give an outline of interactive and commandline usage. See [`documentation.md`](documentation.md) for a detailed description.
 
 ## <a name="interactive">Interactive usage:
 1. Import the `handle_fidelity_estimation.py` module from a Python/IPython console.
@@ -63,7 +63,7 @@ python handle_fidelity_estimation.py [options]
 | :---:          | :---                                           |
 |-y, --yaml      | Path to the YAML file that contains the settings to construct the estimator |
 |-e, --estimator | Path to the JSON file that contains the estimator |
-|-o, --outcomes  | Path to the YAML/CSV file containing the outcomes. See `documentation.md` for details.  |
+|-o, --outcomes  | Path to the YAML/CSV file containing the outcomes. See [`documentation.md`](documentation.md) for details.  |
 |-q, --quiet     | If specified, the progress of optimization is not printed (optional argument, default: 0)|
 |                | `--quiet` can be a number between 0 & 3, with each number corresponding to different levels of suppression of printing to stdout.|
 |-h, --help      | If specified, prints the help. Other options are ignored. |
@@ -93,5 +93,5 @@ The `examples` directory also contains the directories `yaml_files`, `estimator_
 We release this software under the open source `MIT License`. See the [`LICENSE`](LICENSE) file.
 
 # Notes
-This code implements the minimax method detailed in `TODO`.
+This code implements the minimax method detailed in `TODO`.\
 Please consider citing our work if you are using this code for estimating fidelity or expectation values.

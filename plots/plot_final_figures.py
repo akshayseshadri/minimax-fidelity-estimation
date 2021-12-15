@@ -37,7 +37,7 @@ def plot_JN_estimates_histogram(dirpath = './Data/', filename = 'fidelity_estima
         CI_estimate_symm = data_dict['CI_symm_estimate']
     except KeyError:
         raise ValueError("Please ensure that the correct data file has been provided")
-    # discard (pontentially large) data_dict
+    # discard (potentially large) data_dict
     del data_dict
 
     # get parameters (used to generate the data) required for making the plot
@@ -49,7 +49,7 @@ def plot_JN_estimates_histogram(dirpath = './Data/', filename = 'fidelity_estima
         N_samples = params_dict['N_test']
     except KeyError:
         raise ValueError("Please ensure that the correct data file has been provided")
-    # discard (pontentially large) params_dict
+    # discard (potentially large) params_dict
     del params_dict
 
     ### draw the plot
@@ -88,7 +88,7 @@ def plot_risk_trend(plot_type = 'num_meas', dirpath = './Data/', filename = 'fid
         risk_list = data_dict['JN_risk_list']
     except KeyError:
         raise ValueError("Please ensure that the correct data file has been provided")
-    # discard (pontentially large) data_dict
+    # discard (potentially large) data_dict
     del data_dict
 
     # get parameters (used to generate the data) required for making the plot
@@ -106,13 +106,13 @@ def plot_risk_trend(plot_type = 'num_meas', dirpath = './Data/', filename = 'fid
         pauli = params_dict['pauli']
     except KeyError:
         raise ValueError("Please ensure that the correct data file has been provided")
-    # discard (pontentially large) params_dict
+    # discard (potentially large) params_dict
     del params_dict
 
     # risk variation with N for different R_list values
     risk_N_variation = [[risk_list[len(R_list_variation)*i + j] for i in range(len(N_variation))] for j in range(len(R_list_variation))]
 
-    # we are using Pauli measurments, but we don't measure the identity so if even if 4^n was specified for N, only 4^n - 1 were actually measured
+    # we are using Pauli measurements, but we don't measure the identity so if even if 4^n was specified for N, only 4^n - 1 were actually measured
     # the exception being that pauli is a list, in which case we can choose to measure the identity
     if pauli and np.max(N_variation) == n**2:
         if type(pauli) not in [list, tuple, np.ndarray]:
@@ -169,14 +169,14 @@ def curate_fidelity_bounds_data(dirpath = './Data/', filename = 'fidelity_bounds
         except KeyError:
             raise ValueError("Please ensure that the correct data file has been provided")
 
-    # discard (pontentially large) data_dict
+    # discard (potentially large) data_dict
     del data_dict
 
     # convert bounds on fidelity to an average width corresponding to each eps_meas; there are N_test such bounds, so we plot the (ensemble) average width
     # structure of F_bounds_list: [[bound for each "sample"] for each list of samples corresponding to a var_list value]
     average_F_width_list = np.array([np.mean([F_bound[1] - F_bound[0] for F_bound in F_bound_samples]) for F_bound_samples in F_bounds_list])
     
-    # discard (pontentially large) F_bounds_list
+    # discard (potentially large) F_bounds_list
     del F_bounds_list
 
     # ensure that the (absolute value of) duality gap is small
@@ -213,7 +213,7 @@ def plot_fidelity_bounds_pl_jn_sdp_roc(sdp_dirpath = './Data/', sdp_filename = '
         sdp_coverage_prob_list = sdp_data_dict['coverage_prob']
     except KeyError:
         raise ValueError("Please ensure that the correct data file has been provided")
-    # discard (pontentially large) sdp_data_dict
+    # discard (potentially large) sdp_data_dict
     del sdp_data_dict
 
     pl_filepath = PurePath('%s/%s' %(pl_dirpath, pl_filename))
@@ -225,7 +225,7 @@ def plot_fidelity_bounds_pl_jn_sdp_roc(sdp_dirpath = './Data/', sdp_filename = '
         pl_coverage_prob_list = pl_data_dict['coverage_prob_list']
     except KeyError:
         raise ValueError("Please ensure that the correct data file has been provided")
-    # discard (pontentially large) pl_data_dict
+    # discard (potentially large) pl_data_dict
     del pl_data_dict
 
     jn_filepath = PurePath('%s/%s' %(jn_dirpath, jn_filename))
@@ -237,7 +237,7 @@ def plot_fidelity_bounds_pl_jn_sdp_roc(sdp_dirpath = './Data/', sdp_filename = '
         jn_coverage_prob       = [float(jn_data_dict['coverage_prob'])]
     except KeyError:
         raise ValueError("Please ensure that the correct data file has been provided")
-    # discard (pontentially large) jn_data_dict
+    # discard (potentially large) jn_data_dict
     del jn_data_dict
 
     ### draw the plot
