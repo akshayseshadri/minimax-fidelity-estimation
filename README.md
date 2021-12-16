@@ -93,5 +93,5 @@ The `examples` directory also contains the directories `yaml_files`, `estimator_
 We release this software under the open source `MIT License`. See the [`LICENSE`](LICENSE) file.
 
 # Notes
-This code implements the minimax method detailed in `TODO`.\
+This code implements the minimax method detailed in "Versatile fidelity estimation with confidence" ([arxiv:2112.07925](https://arxiv.org/abs/2112.07925)) and "Theory of versatile fidelity estimation with confidence" ([arxiv:2112.07947](https://arxiv.org/abs/2112.07947)).\
 Please consider citing our work if you are using this code for estimating fidelity or expectation values.
