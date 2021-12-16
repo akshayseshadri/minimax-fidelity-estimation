@@ -51,11 +51,9 @@ def minimize_proximal_gradient_nesterov(f, P, gradf, prox_lP, xo, tol = 1e-6, re
 
     l_F = lambda x, y: f(y) + np.dot(gradf(y), x - y) + P(x)
 
-    while f(x_k_next) + P(x_k_next) > ( (1. - theta_k)*l_F(x_k, y_k) + theta_k * l_F(z_k_next, y_k)\
-                                            + 0.5*theta_k**2 * L * np.linalg.norm(z_k_next - z_k)**2 ) and count_inner < max_count_inner:
+    while f(x_k_next) + P(x_k_next) > l_F(x_k_next, y_k) + 0.5 * L * np.linalg.norm(x_k_next - y_k)**2 and count_inner < max_count_inner:
         L *= beta
 
-        y_k      = (1. - theta_k) * x_k + theta_k * z_k
         z_k_next = prox_lP(z_k - gradf(y_k) / (theta_k * L), 1./(theta_k * L), tol)
         x_k_next = (1. - theta_k) * x_k + theta_k * z_k_next
 
@@ -80,8 +78,7 @@ def minimize_proximal_gradient_nesterov(f, P, gradf, prox_lP, xo, tol = 1e-6, re
 
         count_inner = 0
 
-        while f(x_k_next) + P(x_k_next) > ( (1. - theta_k)*l_F(x_k, y_k) + theta_k * l_F(z_k_next, y_k)\
-                                            + 0.5*theta_k**2 * L * np.linalg.norm(z_k_next - z_k)**2 ) and count_inner < max_count_inner:
+        while f(x_k_next) + P(x_k_next) > l_F(x_k_next, y_k) + 0.5 * L * np.linalg.norm(x_k_next - y_k)**2 and count_inner < max_count_inner:
             L *= beta
 
             z_k_next = prox_lP(z_k - gradf(y_k) / (theta_k * L), 1./(theta_k * L), tol)
