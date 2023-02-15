@@ -17,6 +17,7 @@ from optparse import OptionParser
 
 import project_root # noqa
 from src.fidelity_estimation import Fidelity_Estimation_Manager
+from src.fidelity_estimation_cvxpy import Fidelity_Estimation_Manager_CVXPY
 from src.fidelity_estimation_pauli_sampling import Pauli_Sampler_Fidelity_Estimation_Manager
 from src.utilities.qi_utilities import generate_random_state, generate_special_state, generate_Pauli_operator, generate_POVM
 
@@ -460,7 +461,7 @@ def construct_fidelity_estimator(yaml_filename, estimator_filename, yaml_file_di
         success = PSFEM.success
     else:
         # construct the fidelity estimator for specified target state and measurement settings
-        FEM = Fidelity_Estimation_Manager(R_list, epsilon, rho, POVM_list, epsilon_o, tol, random_init, print_progress)
+        FEM = Fidelity_Estimation_Manager_CVXPY(R_list, epsilon, rho, POVM_list, epsilon_o, tol, random_init, print_progress)
         _, risk = FEM.find_fidelity_estimator()
         phi_opt_list = FEM.phi_opt_list
         c = FEM.c
