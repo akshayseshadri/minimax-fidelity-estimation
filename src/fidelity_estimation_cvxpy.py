@@ -37,9 +37,7 @@
 import warnings
 
 import numpy as np
-import scipy as sp
 import cvxpy as cp
-from scipy import optimize
 
 import project_root # noqa
 from src.optimization.project_density_matrices_set import project_on_density_matrices_flattened
@@ -146,9 +144,13 @@ class Fidelity_Estimation_Manager_CVXPY():
 
         # tolerance for all the computations
         self.tol = tol
+        if tol != 1e-6:
+            warnings.warn("Tolerances in CVXPY optimization are solver dependent. The `tol` parameter will be unused.")
 
         # create a state for initializing minimize_lagrangian_density_matrices (to be used specifically for find_density_matrices_saddle_point)
         if not random_init:
+            warnings.warn("The initial condition for the necessary CVXPY solvers are fixed. The `random_init` parameter will be unused.")
+
             # use a slightly perturbed target state as initial condition
             sigma_init = 0.9 * self.rho_full + 0.1 * (np.eye(int(np.round(np.sqrt(self.n), decimals = 0)), dtype = 'complex128').ravel() - self.rho_full)
             sigma_init = embed_hermitian_matrix_real_vector_space(sigma_init)
@@ -167,7 +169,7 @@ class Fidelity_Estimation_Manager_CVXPY():
             self.progress_counter = 0
 
         # determine whether the optimization achieved the tolerance
-        self.success = True
+        self.success = None
 
         # stores the compiled cvxpy problem
         self.cvxpy_prob = None
@@ -182,18 +184,19 @@ class Fidelity_Estimation_Manager_CVXPY():
 
         This only needs to be done once, and can then be called multiple times 
         """
+        nq = int(np.log2(np.sqrt(self.n)))
 
         # Define variables
-        x = cp.Variable((2**self.nq, 2**self.nq), hermitian=True, name='x')
-        y = cp.Variable((2**self.nq, 2**self.nq), hermitian=True, name='y')
+        x = cp.Variable((2**nq, 2**nq), hermitian=True, name='x')
+        y = cp.Variable((2**nq, 2**nq), hermitian=True, name='y')
 
         # Establish constraints for optimization
-        rho = cp.Constant( self.rho_full.reshape( 2**self.nq, 2**self.nq ) )
+        rho = cp.Constant( self.rho_full.reshape( 2**nq, 2**nq ) )
         
         epsilon_o = cp.Constant( self.epsilon_o )
         rhs = cp.Constant( np.log( self.epsilon / 2 ) )
 
-        POVM_mats = [[cp.Constant(E_i.reshape( 2**self.nq, 2**self.nq )) for E_i in POVM] for POVM in self.POVM_list_full]
+        POVM_mats = [[cp.Constant(E_i.reshape( 2**nq, 2**nq )) for E_i in POVM] for POVM in self.POVM_list_full]
         
         Ns = cp.Constant( np.array([len(POVM) for POVM in POVM_mats]) )
         Rs = cp.Parameter( len( POVM_mats ), nonneg=True, name='Rs' )
@@ -213,7 +216,7 @@ class Fidelity_Estimation_Manager_CVXPY():
         
         obj = 0.5 * cp.Maximize( cp.real( cp.trace( rho @ ( x - y ) ) ) )
 
-        self.cppy_prob = cp.Problem( obj, cp_con )
+        self.cvxpy_prob = cp.Problem( obj, cp_con )
 
     ###----- Finding x, y maximum and alpha minimum of \Phi_r
     def maximize_risk_density_matrices( self, R_list = None, solver='SCS' ):
@@ -249,14 +252,18 @@ class Fidelity_Estimation_Manager_CVXPY():
             self.R_list = R_list
         
         self.cvxpy_prob.param_dict['Rs'].value = np.array( self.R_list )
-        self.cvxpy_prob.solve( warm_start=True, solver=solver )
-
-        self.success = True
+        self.cvxpy_prob.solve( verbose=self.print_progress, warm_start=True, solver=solver )
 
         self.sigma_1_opt = embed_hermitian_matrix_real_vector_space(self.cvxpy_prob.var_dict['x'].value)
         self.sigma_2_opt = embed_hermitian_matrix_real_vector_space(self.cvxpy_prob.var_dict['y'].value)
         self.alpha_opt = self.cvxpy_prob.constraints[0].dual_value
         self.Phi_r_bar_alpha_opt = self.cvxpy_prob.value
+
+        # check if alpha optimization was successful
+        if self.cvxpy_prob.status in ['infeasible', 'unbounded']:
+            self.success = False
+            warnings.warn("The CVXPY optimization has not converge properly to the optimal. The estimates may be unreliable. Consider using a different solver.")
+        self.success = True
 
         return (self.sigma_1_opt, self.sigma_2_opt, self.alpha_opt)
 
