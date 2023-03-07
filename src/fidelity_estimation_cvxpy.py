@@ -117,12 +117,11 @@ class Fidelity_Estimation_Manager_CVXPY():
         # density matrix of the system (before embedding)
         self.rho_full = rho
 
-        # list of POVMs, one corresponding to each type of measurement
-        self.POVM_list_full = POVM_list
-
         # dimension of the density matrix (full state)
         self.n = rho.size
-        # number of POVMs (also the number of types of measurement)
+        self.nq = int(np.log2(np.sqrt(self.n)))
+
+        # number of POVMs  (also the number of types of measurement)
         self.N = len(POVM_list)
         # number of elements in each POVM
         self.N_list = [len(POVM) for POVM in POVM_list]
@@ -137,10 +136,9 @@ class Fidelity_Estimation_Manager_CVXPY():
         # embed all Hermitian matrices into a real vector space
         # size of rho before embedding is n^2 (flattened, over complex vector space) and after embedding is also n^2 (but over a real vector space)
         self.rho = embed_hermitian_matrix_real_vector_space(rho)
-        self.POVM_list = [[embed_hermitian_matrix_real_vector_space(E_i) for E_i in POVM] for POVM in POVM_list]
 
-        # convert each (embedded) POVM into a matrix
-        self.POVM_mat_list = [np.vstack(POVM) for POVM in self.POVM_list]
+        # list of POVMs, one corresponding to each type of measurement
+        self.POVM_list_cvx = [[cp.Constant(E_i.reshape( 2**self.nq, 2**self.nq )) for E_i in POVM] for POVM in POVM_list]
 
         # tolerance for all the computations
         self.tol = tol
@@ -196,19 +194,15 @@ class Fidelity_Estimation_Manager_CVXPY():
         epsilon_o = cp.Constant( self.epsilon_o )
         rhs = cp.Constant( np.log( self.epsilon / 2 ) )
 
-        POVM_mats = [[cp.Constant(E_i.reshape( 2**nq, 2**nq )) for E_i in POVM] for POVM in self.POVM_list_full]
-        
-        Ns = cp.Constant( np.array([len(POVM) for POVM in POVM_mats]) )
-        Rs = cp.Parameter( len( POVM_mats ), nonneg=True, name='Rs' )
+        Ns = cp.Constant( np.array(self.N_list) )
+        Rs = cp.Constant( np.array(self.R_list) )
 
         lnAffH = cp.Constant( 0 )
-        for i in range( len( POVM_mats ) ):
+        for i in range( self.N ):
             inner_sum = cp.Constant( 0 )
-            for j in range( len( POVM_mats[i] ) ):
-                p_1 = (cp.real( cp.trace( POVM_mats[i][j] @ x ) ) + epsilon_o / Ns[i]) / (1 + epsilon_o)
-                p_2 = (cp.real( cp.trace( POVM_mats[i][j] @ y ) ) + epsilon_o / Ns[i]) / (1 + epsilon_o)
-
-                inner_sum = inner_sum + cp.geo_mean( cp.vstack([p_1, p_2]) )
+            for j in range( self.N_list[i] ):
+                inner_sum = inner_sum + cp.geo_mean( cp.vstack([(cp.real( cp.trace( self.POVM_list_cvx[i][j] @ x ) ) + epsilon_o / Ns[i]), \
+                                                                (cp.real( cp.trace( self.POVM_list_cvx[i][j] @ y ) ) + epsilon_o / Ns[i])]) ) / (1 + epsilon_o)
 
             lnAffH = lnAffH + Rs[i] * cp.log( inner_sum )
 
@@ -219,7 +213,7 @@ class Fidelity_Estimation_Manager_CVXPY():
         self.cvxpy_prob = cp.Problem( obj, cp_con )
 
     ###----- Finding x, y maximum and alpha minimum of \Phi_r
-    def maximize_risk_density_matrices( self, R_list = None, solver='SCS' ):
+    def maximize_risk_density_matrices( self, solver='SCS' ):
         """
             Solves the convex optimization problem with cvxpy. 
             The solver SCS is packaged with cvxpy, but problem is compatible with MOSEK,
@@ -246,12 +240,7 @@ class Fidelity_Estimation_Manager_CVXPY():
         # Only need to compile the problem once
         if self.cvxpy_prob is None:
             self.define_cvxpy_problem()
-            
-        # Can use originally defined shot counts
-        if R_list is not None:
-            self.R_list = R_list
-        
-        self.cvxpy_prob.param_dict['Rs'].value = np.array( self.R_list )
+
         self.cvxpy_prob.solve( verbose=self.print_progress, warm_start=True, solver=solver )
 
         self.sigma_1_opt = embed_hermitian_matrix_real_vector_space(self.cvxpy_prob.var_dict['x'].value)
@@ -303,23 +292,21 @@ class Fidelity_Estimation_Manager_CVXPY():
 
         # the saddle point value of \Phi_r
         Phi_r_opt = self.Phi_r_bar_alpha_opt
+        x_opt = embed_hermitian_matrix_real_vector_space( self.sigma_1_opt, reverse=True, flatten=False )
+        y_opt = embed_hermitian_matrix_real_vector_space( self.sigma_2_opt, reverse=True, flatten=False )
 
         # construct (phi/alpha)* at saddle point using sigma_1* and sigma_2*
-        phi_alpha_opt_list = [0]*self.N
+        phi_alpha_opt_list = [np.zeros( N ) for N in self.N_list]
         for i in range(self.N):
-            # number of elements in the ith POVM
-            Ni = self.N_list[i]
-            # ith POVM in matrix form
-            POVM_mat_i = self.POVM_mat_list[i]
-
-            # the probability distributions corresponding to sigma_1*, sigma_2*:
-            # p^{i}_1(k) = (<E^{i}_k, sigma_1*> + \epsilon_o/Ni)/(1 + \epsilon_o) and
-            # p^{i}_2(k) = (<E^{i}_k, sigma_2*> + \epsilon_o/Ni)/(1 + \epsilon_o)
-            p_1_i = (POVM_mat_i.dot(sigma_1_opt) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-            p_2_i = (POVM_mat_i.dot(sigma_2_opt) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-
-            # (phi/alpha)* at the saddle point
-            phi_alpha_opt_list[i] = 0.5*np.log(p_1_i/p_2_i)
+            for j in range( self.N_list[i] ):
+                # the probability distributions corresponding to sigma_1*, sigma_2*:
+                # p^{i}_1(k) = (<E^{i}_k, sigma_1*> + \epsilon_o/Ni)/(1 + \epsilon_o) and
+                # p^{i}_2(k) = (<E^{i}_k, sigma_2*> + \epsilon_o/Ni)/(1 + \epsilon_o)
+                p_1 = (np.real( np.trace( self.POVM_list_cvx[i][j].value @ x_opt ) ) + self.epsilon_o / self.N_list[i]) / (1 + self.epsilon_o)
+                p_2 = (np.real( np.trace( self.POVM_list_cvx[i][j].value @ y_opt ) ) + self.epsilon_o / self.N_list[i]) / (1 + self.epsilon_o)
+                
+                # (phi/alpha)* at the saddle point
+                phi_alpha_opt_list[i][j] = 0.5*np.log(p_1/p_2)
 
         # obtain phi* at the saddle point
         self.phi_opt_list = [phi_alpha_opt * alpha_opt for phi_alpha_opt in phi_alpha_opt_list]
