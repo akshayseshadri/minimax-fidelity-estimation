@@ -195,24 +195,18 @@ class Fidelity_Estimation_Manager():
             # start with the terms that don't depend on POVMs
             f_val = -self.rho.dot(sigma_1) + self.rho.dot(sigma_2)
 
-            # iteratively build the function value, accounting for multiple POVMs
-            for i in range(self.N):
-                # number of elements in the ith POVM
-                Ni = self.N_list[i]
-                # ith POVM in matrix form
-                POVM_mat_i = self.POVM_mat_list[i]
-                # number of repetitions of ith POVM measurement
-                Ri = self.R_list[i]
+            POVM_mats = np.array( self.POVM_mat_list )
 
-                # the probability distributions corresponding to the POVM:
-                # p_1^{i}(k) = (<E^{i}_k, sigma_1> + \epsilon_o/Nm)/(1 + \epsilon_o) and
-                # p_2^{i}(k) = (<E^{i}_k, sigma_2> + \epsilon_o/Nm)/(1 + \epsilon_o)
-                p_1_i = (POVM_mat_i.dot(sigma_1) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-                p_2_i = (POVM_mat_i.dot(sigma_2) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
+            Ns = np.expand_dims( np.array( self.N_list ), 1 )
+            Rs = np.array( self.R_list )
 
-                f_val = f_val - 2*alpha * Ri * np.log(np.sqrt(p_1_i).dot(np.sqrt(p_2_i)))
+            # the probability distributions corresponding to the POVM:
+            # p_1^{i}(k) = (<E^{i}_k, sigma_1> + \epsilon_o/Nm)/(1 + \epsilon_o) and
+            # p_2^{i}(k) = (<E^{i}_k, sigma_2> + \epsilon_o/Nm)/(1 + \epsilon_o)
+            p_1 = (POVM_mats.dot(sigma_1) + self.epsilon_o / Ns) / (1. + self.epsilon_o)
+            p_2 = (POVM_mats.dot(sigma_2) + self.epsilon_o / Ns) / (1. + self.epsilon_o)
 
-            return f_val
+            return f_val - 2 * alpha * np.sum( Rs * np.log( np.sum( np.sqrt(p_1 * p_2), axis=1 ) ) ) 
 
         def gradf(sigma_ds):
             sigma_1 = sigma_ds[0: self.n]
@@ -224,33 +218,24 @@ class Fidelity_Estimation_Manager():
             # gradient with respect to sigma_2
             gradf_sigma_2_val = self.rho
 
-            for i in range(self.N):
-                # number of elements in the ith POVM
-                Ni = self.N_list[i]
-                # ith POVM in matrix form
-                POVM_mat_i = self.POVM_mat_list[i]
-                # number of repetitions of ith POVM measurement
-                Ri = self.R_list[i]
+            POVM_mats = np.array( self.POVM_mat_list )
+            Ns = np.expand_dims( np.array( self.N_list ), 1 )
+            Rs = np.expand_dims( np.array( self.R_list ), 1 )
 
-                # the probability distributions corresponding to the POVM:
-                # p_1^{i}(k) = (<E^{i}_k, sigma_1> + \epsilon_o/Nm)/(1 + \epsilon_o) and
-                # p_2^{i}(k) = (<E^{i}_k, sigma_2> + \epsilon_o/Nm)/(1 + \epsilon_o)
-                p_1_i = (POVM_mat_i.dot(sigma_1) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
-                p_2_i = (POVM_mat_i.dot(sigma_2) + self.epsilon_o/Ni) / (1. + self.epsilon_o)
+            # the probability distributions corresponding to the POVM:
+            # p_1^{i}(k) = (<E^{i}_k, sigma_1> + \epsilon_o/Nm)/(1 + \epsilon_o) and
+            # p_2^{i}(k) = (<E^{i}_k, sigma_2> + \epsilon_o/Nm)/(1 + \epsilon_o)    
+            p_1 = (POVM_mats.dot(sigma_1) + self.epsilon_o / Ns) / (1. + self.epsilon_o)
+            p_2 = (POVM_mats.dot(sigma_2) + self.epsilon_o / Ns) / (1. + self.epsilon_o)
 
-                # Hellinger affinity between p_1 and p_2
-                AffH_i = np.sqrt(p_1_i).dot(np.sqrt(p_2_i))
+            AffHs = np.expand_dims( np.sum( np.sqrt(p_1) * np.sqrt(p_2), axis=1 ), 1 )
 
-                # gradient with respect to sigma_1
-                gradf_sigma_1_val = gradf_sigma_1_val - alpha * Ri * np.sqrt(p_2_i/p_1_i).dot(POVM_mat_i)/(AffH_i * (1. + self.epsilon_o))
+            gradf_sigma_1_val = gradf_sigma_1_val - alpha * np.sum( Rs * np.sum( np.expand_dims( np.sqrt(p_2/p_1), 2 ) * POVM_mats, axis=1 ) / (AffHs * (1. + self.epsilon_o)), axis=0 )
 
-                # gradient with respect to sigma_2
-                gradf_sigma_2_val = gradf_sigma_2_val - alpha * Ri * np.sqrt(p_1_i/p_2_i).dot(POVM_mat_i)/(AffH_i * (1. + self.epsilon_o))
+            gradf_sigma_2_val = gradf_sigma_2_val - alpha * np.sum( Rs * np.sum( np.expand_dims( np.sqrt(p_1/p_2), 2 ) * POVM_mats, axis=1 ) / (AffHs * (1. + self.epsilon_o)), axis=0 )
 
             # gradient with respect to sigma_ds
-            gradf_val = np.concatenate((gradf_sigma_1_val, gradf_sigma_2_val))
-
-            return gradf_val
+            return np.concatenate((gradf_sigma_1_val, gradf_sigma_2_val))
 
         # the other part of the objective function is an indicator function on X x X, so it is set to zero because all iterates in Nesterov's
         # second method are inside the domain

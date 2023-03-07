@@ -130,13 +130,11 @@ def embed_hermitian_matrix_real_vector_space(A, reverse = False, flatten = False
             # components from n + 1 to (n^2 + n)/2 are real off-diagonal entries of A
             # components from (n^2 + n)/2 + 1 to n^2 are imaginary off-diagonal entries of A
             real_start = n                         # n is the starting point (index) for the real part
-            imag_start = int(0.5*(n**2 + n))       # n + (n^2 - n)/2 is the starting point (index) for the imaginary part
-            for count, (i, j) in enumerate([(i, j) for (i, j) in itertools.product(range(n), range(n)) if i < j]):
-                # \sqrt{2} Re(A_ij)_{i < j}
-                a[real_start + count] = np.sqrt(2)*np.real(A[i, j])
+            imag_start = (n**2 + n)//2             # n + (n^2 - n)/2 is the starting point (index) for the imaginary part
 
-                # \sqrt{2} Im(A_ij)_{i < j}
-                a[imag_start + count] = np.sqrt(2)*np.imag(A[i, j])
+            for i in range(0, n-1):
+                a[real_start + n*i - i * (i+1) // 2:real_start + n*i - i * (i+1) // 2 + (n-i-1)] = np.sqrt(2) * np.real( A[i, i+1:] )
+                a[imag_start + n*i - i * (i+1) // 2:imag_start + n*i - i * (i+1) // 2 + (n-i-1)] = np.sqrt(2) * np.imag( A[i, i+1:] )
 
             return a
         # a -> A
@@ -156,13 +154,12 @@ def embed_hermitian_matrix_real_vector_space(A, reverse = False, flatten = False
 
             # off diagonal entries
             real_start = n                         # n is the starting point (index) for the real part
-            imag_start = int(0.5*(n**2 + n))       # n + (n^2 - n)/2 is the starting point (index) for the imaginary part
-            for count, (i, j) in enumerate([(i, j) for (i, j) in itertools.product(range(n), range(n)) if i < j]):
-                # (A_ij)_{i < j}
-                A[i, j] = (a[real_start + count] + 1j*a[imag_start + count])/np.sqrt(2)
+            imag_start = (n**2 + n)//2       # n + (n^2 - n)/2 is the starting point (index) for the imaginary part
 
-                # use Hermiticity of A
-                A[j, i] = np.conj(A[i, j])
+            for i in range(0, n-1):
+                A[i, i+1:] = ( a[real_start + n*i - i * (i+1) // 2:real_start + n*i - i * (i+1) // 2 + (n-i-1)] + \
+                               1j * a[imag_start + n*i - i * (i+1) // 2:imag_start + n*i - i * (i+1) // 2 + (n-i-1)]) / np.sqrt(2)
+                A[i+1:, i] = np.conj(A[i, i+1:])
 
             if flatten:
                 A = A.ravel()
@@ -188,10 +185,9 @@ def embed_hermitian_matrix_real_vector_space(A, reverse = False, flatten = False
 
             # components from n + 1 to n(n + 1)/2 are real off-diagonal entries of A
             real_start = n                         # n is the starting point (index) for the off-diagonal part
-            for count, (i, j) in enumerate([(i, j) for (i, j) in itertools.product(range(n), range(n)) if i < j]):
-                # \sqrt{2} Re(A_ij)_{i < j}
-                a[real_start + count] = np.sqrt(2)*np.real(A[i, j])
-
+            for i in range(0, n-1):
+               a[real_start + n*i - i * (i+1) // 2:real_start + n*i - i * (i+1) // 2 + (n-i-1)] = np.sqrt(2) * A[i, i+1:]
+            
             return a
         # a -> A
         else:
@@ -210,12 +206,9 @@ def embed_hermitian_matrix_real_vector_space(A, reverse = False, flatten = False
 
             # off diagonal entries
             real_start = n                         # n is the starting point (index) for the off-diagonal part
-            for count, (i, j) in enumerate([(i, j) for (i, j) in itertools.product(range(n), range(n)) if i < j]):
-                # (A_ij)_{i < j}
-                A[i, j] = a[real_start + count]/np.sqrt(2)
-
-                # use Hermiticity of A
-                A[j, i] = A[i, j]
+            for i in range(0, n-1):
+               A[i, i+1:] = a[real_start + n*i - i * (i+1) // 2:real_start + n*i - i * (i+1) // 2 + (n-i-1)] / np.sqrt(2)
+               A[i+1:, i] = A[i, i+1:]
 
             if flatten:
                 A = A.ravel()
