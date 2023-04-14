@@ -44,7 +44,7 @@ from src.optimization.project_density_matrices_set import project_on_density_mat
 from src.optimization.proximal_gradient import minimize_proximal_gradient_nesterov
 from src.utilities.qi_utilities import embed_hermitian_matrix_real_vector_space, generate_random_state
 
-class Fidelity_Estimation_Manager_CVXPY_pauli():
+class Fidelity_Estimation_Manager_CVXPY_mem():
     """
         Solves the different optimization problems required for fidelity estimation using Juditsky & Nemirovski's approach.
         A more memory efficient version of `Fidelity_Estimation_CVXPY`, but requires POVMs to be derived from Pauli basis
