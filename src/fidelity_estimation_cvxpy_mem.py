@@ -44,7 +44,7 @@ from src.optimization.project_density_matrices_set import project_on_density_mat
 from src.optimization.proximal_gradient import minimize_proximal_gradient_nesterov
 from src.utilities.qi_utilities import embed_hermitian_matrix_real_vector_space, generate_random_state
 
-class Fidelity_Estimation_Manager_CVXPY_pauli():
+class Fidelity_Estimation_Manager_CVXPY_Mem():
     """
         Solves the different optimization problems required for fidelity estimation using Juditsky & Nemirovski's approach.
         A more memory efficient version of `Fidelity_Estimation_CVXPY`, but requires POVMs to be derived from Pauli basis
@@ -87,7 +87,7 @@ class Fidelity_Estimation_Manager_CVXPY_pauli():
 
         This produces the same optimal values sigma_1* and sigma_2*, and the value alpha* is the optimal dual variable of this constraint.
     """
-    def __init__(self, R_list, epsilon, rho, POVM_list, N_list, epsilon_o, tol = 1e-6, random_init = False, print_progress = True):
+    def __init__(self, R_list, epsilon, rho, pauli_list, N_list, epsilon_o, tol = 1e-6, random_init = False, print_progress = True):
         """
             Assigns values to parameters and defines and initializes functions.
 
@@ -98,7 +98,7 @@ class Fidelity_Estimation_Manager_CVXPY_pauli():
                 - R_list         : list of repetitions used for each POVM
                 - epsilon        : 1 - confidence level, should be between 0 and 0.25, end points excluded
                 - rho            : target state; must be a pure state density matrix
-                - POVM_list      : list of POVMs to be measured
+                - pauli_list      : list _specifying_ the paulis to be measured as ints or strings. NOT the full POVMs
                 - N_list         : number of elements in each POVM
                 - epsilon_o      : constant to prevent zero probabilities in Born's rule
                 - tol            : tolerance used by the optimization algorithms
@@ -125,7 +125,7 @@ class Fidelity_Estimation_Manager_CVXPY_pauli():
 
         # number of POVMs
         #  (also the number of types of measurement)
-        self.N = len(POVM_list)
+        self.N = len(pauli_list)
         # Number of elements in each POVM
         self.N_list = N_list
 
@@ -140,16 +140,28 @@ class Fidelity_Estimation_Manager_CVXPY_pauli():
         # size of rho before embedding is n^2 (flattened, over complex vector space) and after embedding is also n^2 (but over a real vector space)
         self.rho = embed_hermitian_matrix_real_vector_space(rho)
        
-        # list of POVMs, one corresponding to each type of measurement
-        if type( POVM_list[0] ) in [int, np.int64]:
-            self.POVM_list = [np.base_repr( pauli, base=4 ).rjust(self.nq, '0') for pauli in POVM_list]
-        elif POVM_list[0][0] in "0123":
-            self.POVM_list = POVM_list
-        elif POVM_list[0][0].lower() in "ixyz":
-            self.POVM_list = [pauli.lower().translate(str.maketrans('ixyz', '0123')) for pauli in POVM_list]
-        else:
-            warnings.warn("POVM list format not recognized. Acceptable formats include strings of IXYZ, 0123, or unsigned integers.")
-            return
+        # list of strings to specify POVMs, one corresponding to each type of measurement
+        # Consistent with `generate_Pauli_POVM` The string must consist of I, X, Y, Z or 0, 1, 2, 3.
+        # A phase of +1/-1, +i/-i can also be specified.
+        self.phases = []
+        self.pauli_list = []
+        for pauli in pauli_list:
+            # Get string specifying operator and get rid of +
+            pauli = str( pauli ).lower()
+            pauli = pauli.strip('+')
+
+            # Extract the phase of the pauli operator, then remove it from the string
+            if '-j' in pauli:
+                self.phases.append( -1j ) 
+            elif '-' in pauli:
+                self.phases.append( -1  )
+            elif 'j' in pauli:
+                self.phases.append(  1j )
+            else:
+                self.phases.append(  1  )
+            pauli = pauli.strip( '-j' )
+            self.pauli_list.append( pauli.translate(str.maketrans('ixyz', '0123')) )
+
         
         # Store the 8 matrices used in the tensor products to construct each pauli
         self.pauli_evec = {'0': np.eye(2, dtype = 'complex128'), '1': np.array([[1., 1.], [1., -1.]], dtype = 'complex128')/np.sqrt(2),\
@@ -220,11 +232,11 @@ class Fidelity_Estimation_Manager_CVXPY_pauli():
         Id = cp.Constant( np.eye( 2**self.nq ) )
 
         lnAffH = cp.Constant( 0 )
-        for (i, meas) in enumerate( self.POVM_list ): # Select a measurement
+        for (i, meas) in enumerate( self.pauli_list ): # Select a measurement
             # Handle coarse POVM case
             if self.N_list[i] == 2:
                 # Generate the full Pauli operator matrix out of tensor products
-                P_op = self.pauli_basis[meas[0]]
+                P_op = self.phases[i] * self.pauli_basis[meas[0]]
                 for qi in range( 1, self.nq ):
                     #                 self.pauli_basis[which pauli] 
                     P_op = cp.kron( P_op, self.pauli_basis[meas[qi]] )
@@ -245,7 +257,7 @@ class Fidelity_Estimation_Manager_CVXPY_pauli():
                     qubit = np.binary_repr( meas_i, width=self.nq )
 
                     # Generate the POVM matrix out of tensor products
-                    E_lk = self.pauli_evec[meas[0]][qubit[0]]
+                    E_lk = self.phases[i] * self.pauli_evec[meas[0]][qubit[0]]
                     for qi in range( 1, self.nq ):
                         #                 self.pauli_evec[which pauli][which evector] 
                         E_lk = cp.kron( E_lk, self.pauli_evec[meas[qi]][qubit[qi]] ) 
@@ -349,11 +361,11 @@ class Fidelity_Estimation_Manager_CVXPY_pauli():
 
         # construct (phi/alpha)* at saddle point using sigma_1* and sigma_2*
         phi_alpha_opt_list = [np.zeros( N ) for N in self.N_list]
-        for (i, meas) in enumerate( self.POVM_list ): # Select a measurement
+        for (i, meas) in enumerate( self.pauli_list ): # Select a measurement
             # Handle coarse POVM case
             if self.N_list[i] == 2:
                 # Generate the full Pauli operator matrix out of tensor products
-                P_op = self.pauli_basis[meas[0]]
+                P_op = self.phases[i] * self.pauli_basis[meas[0]]
                 for qi in range( 1, self.nq ):
                     #                 self.pauli_basis[which pauli] 
                     P_op = cp.kron( P_op, self.pauli_basis[meas[qi]] )
@@ -373,7 +385,7 @@ class Fidelity_Estimation_Manager_CVXPY_pauli():
                     qubit = np.binary_repr( meas_i, width=self.nq )
 
                     # Generate the POVM matrix out of tensor products
-                    E_lk = self.pauli_evec[meas[0]][qubit[0]]
+                    E_lk = self.phases[i] * self.pauli_evec[meas[0]][qubit[0]]
                     for qi in range( 1, self.nq ):
                         #                 self.pauli_evec[which pauli][which evector] 
                         E_lk = cp.kron( E_lk, self.pauli_evec[meas[qi]][qubit[qi]] ) 

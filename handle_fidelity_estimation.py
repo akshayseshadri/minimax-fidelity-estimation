@@ -18,6 +18,7 @@ from optparse import OptionParser
 import project_root # noqa
 from src.fidelity_estimation import Fidelity_Estimation_Manager
 from src.fidelity_estimation_cvxpy import Fidelity_Estimation_Manager_CVXPY
+from src.fidelity_estimation_cvxpy_mem import Fidelity_Estimation_Manager_CVXPY_Mem
 from src.fidelity_estimation_pauli_sampling import Pauli_Sampler_Fidelity_Estimation_Manager
 from src.utilities.qi_utilities import generate_random_state, generate_special_state, generate_Pauli_operator, generate_POVM
 
@@ -204,6 +205,17 @@ def parse_yaml_settings_file(yaml_filepath):
     except ValueError:
         raise ValueError("Unable to parse the supplied value for 'target'. If a list of values has been provided, ensure that entries are valid numbers.")
 
+    # Numerical algorithm: Optional argument
+    try:
+        algorithm = yaml_data['algorithm']
+    except KeyError:
+        algorithm = 'saddle_point'
+
+    optional_args = dict()
+    if not algorithm.lower() in ['saddle_point', 'cvxpy', 'cvxpy_pauli_mem']:
+        raise ValueError("Algorithm not supported. Current options are 'saddle_point' (default), 'cvxpy', 'cvxpy_pauli_mem'.")
+    optional_args['algorithm'] = algorithm.lower()
+
     ### parse and generate POVM_list
     try:
         POVM_list = yaml_data['POVM_list']
@@ -217,6 +229,9 @@ def parse_yaml_settings_file(yaml_filepath):
         for POVM in POVM_list:
             # a POVM has been explicitly provided
             if type(POVM) == list:
+                if optional_args['algorithm'] == 'cvxpy_pauli_mem':
+                    raise ValueError( "Algorithm `cvxpy_pauli_mem` incompatible with explicitly defined POVMs. `POVM_list` must be list specifying Pauli measurements.")
+                
                 # if complex numbers have been provided with spaces in them, it cannot be typecast
                 # so simply convert everything to strings without spaces, and then typecast them later
                 POVM_parsed = list()
@@ -235,6 +250,7 @@ def parse_yaml_settings_file(yaml_filepath):
 
                     # the default measurement is projection on eigenbasis
                     projection = 'eigenbasis'
+
                     if 'subspace' in pauli_list_lower:
                         projection = 'subspace'
 
@@ -271,8 +287,15 @@ def parse_yaml_settings_file(yaml_filepath):
                         # find the largest 'N' weights, and measure the corresponding Pauli operators
                         pauli_measurements = sorted(pauli_weight_list, key = lambda x: x[1], reverse = True)[:N]
 
-                        POVM_list_generated = [generate_POVM(n = n, num_povm = num_povm, projective = True, flatten = True, isComplex = True,\
-                                                             verify = False, pauli = pauli, random_seed = None) for (pauli, _) in pauli_measurements]
+                        # If we're using the memory efficient version of the cvxpy algorithm, we don't want to generate the POVMs
+                        #  but instead need to store a list for the size of each POVM
+                        if optional_args['algorithm'] == 'cvxpy_pauli_mem':
+                            i2s = lambda i : str(np.base_repr(i, base=4)).rjust(nq, '0').translate(str.maketrans('0123', 'IXYZ'))
+                            optional_args['N_list'] = [num_povm] * N
+                            POVM_list_generated = [ i2s( pauli ) for (pauli, _) in pauli_measurements]
+                        else:
+                            POVM_list_generated = [generate_POVM(n = n, num_povm = num_povm, projective = True, flatten = True, isComplex = True,\
+                                                                 verify = False, pauli = pauli, random_seed = None) for (pauli, _) in pauli_measurements]
                     elif pauli_format == 'rpm':
                         # use the random Pauli measurement scheme
                         POVM_list_generated = [['rpm', n]]
@@ -288,7 +311,14 @@ def parse_yaml_settings_file(yaml_filepath):
                         if not (pauli_list_nq == [nq]*len(pauli_list_nq)):
                             raise ValueError("Every Pauli operator must act on the same number of qubits.")
 
-                        POVM_list_generated = [generate_Pauli_POVM(pauli, projection, flatten = True, isComplex = True) for pauli in pauli_op_list]
+                        # If we're using the memory efficient version of the cvxpy algorithm, we don't want to generate the POVMs
+                        #  but instead need to store a list for the size of each POVM
+                        if optional_args['algorithm'] == 'cvxpy_pauli_mem':
+                            optional_args['N_list'] = [{'subspace' : 2, 'eigenbasis' : n}[projection]] * len(pauli_op_list)
+                            POVM_list_generated = pauli_op_list
+                            break
+                        else:
+                            POVM_list_generated = [generate_Pauli_POVM(pauli, projection, flatten = True, isComplex = True) for pauli in pauli_op_list]
 
                     POVM_list_parsed.extend(POVM_list_generated)
 
@@ -354,9 +384,7 @@ def parse_yaml_settings_file(yaml_filepath):
     if not (0 < epsilon < 0.25):
         raise ValueError("The confidence level should be between 0.75 and 1, with end points exluded.")
 
-    # parse the optional arguments
-    optional_args = dict()
-
+    # parse the rest of the optional arguments
     # random initial condition: optional argument
     try:
         random_init = yaml_data['random_init']
@@ -425,7 +453,7 @@ def construct_fidelity_estimator(yaml_filename, estimator_filename, yaml_file_di
     ### construct the fidelity estimator
     # if Randomized Pauli measurement scheme has been opted for, use a specially designed efficient algorithm
     # POVM_list[0][0] is equal to 'rpm' if Randomized Pauli measurement scheme has been specified
-    if type(POVM_list[0][0]) == str:
+    if POVM_list[0][0] == "rpm":
         # the normalization factor is known for stabilizer states, so use a special algorithm for stabilizer states
         # check if the target state is a stabilizer state
         with open(yaml_filepath) as yaml_file:
@@ -461,7 +489,13 @@ def construct_fidelity_estimator(yaml_filename, estimator_filename, yaml_file_di
         success = PSFEM.success
     else:
         # construct the fidelity estimator for specified target state and measurement settings
-        FEM = Fidelity_Estimation_Manager_CVXPY(R_list, epsilon, rho, POVM_list, epsilon_o, tol, random_init, print_progress)
+        if optional_args['algorithm'] == 'cvxpy':
+            FEM = Fidelity_Estimation_Manager_CVXPY(R_list, epsilon, rho, POVM_list, epsilon_o, tol, random_init, print_progress)
+        if optional_args['algorithm'] == 'saddle_point':
+            FEM = Fidelity_Estimation_Manager(R_list, epsilon, rho, POVM_list, epsilon_o, tol, random_init, print_progress)
+        if optional_args['algorithm'] == 'cvxpy_pauli_mem':
+            FEM = Fidelity_Estimation_Manager_CVXPY_Mem(R_list, epsilon, rho, POVM_list, optional_args['N_list'], epsilon_o, tol, random_init, print_progress)
+    
         _, risk = FEM.find_fidelity_estimator()
         phi_opt_list = FEM.phi_opt_list
         c = FEM.c
