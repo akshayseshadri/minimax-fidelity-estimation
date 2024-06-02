@@ -311,24 +311,12 @@ def generate_random_state(n = 2, pure = True, density_matrix = True, flatten = T
             else:
                 rho = get_outer_product(rho, rho)                       # density matrix corresponding to the state vector
     else:
-        # number of pure states to be added to generate the density matrix
-        N = np.random.random_integers(low = 2, high = 10, size = 1)[0]
+        # construct a matrix sampled from the Ginibre ensemble (entries are iid complex standard normal)
+        G = np.random.randn(n, n) + 1j*np.random.randn(n, n)
 
-        # generate N pure states
-        if isComplex:
-            rho_list = generate_uniform_points_n_sphere(n_euclid = 2*n, N_points = N, random_seed = random_seed)
-            rho_list = [np.array([p1 + 1.j*p2 for (p1, p2) in zip(rho[0::2], rho[1::2])]).reshape((n, 1)) for rho in rho_list] 
-        else:
-            rho_list = generate_uniform_points_n_sphere(n_euclid = n, N_points = N, random_seed = random_seed)
-            rho_list = [rho.reshape((n, 1)) for rho in rho_list] 
-        rho_list = [get_outer_product(rho, rho) for rho in rho_list]
-
-        # generate a discrete probability distribution with N points
-        p = np.random.random_integers(low = 1, high = 100, size = N)
-        p = p/float(sum(p))
-        
-        # add the density matrices as per the probability distribution to get a mixed state
-        rho = np.sum([p_i*rho for (p_i, rho) in zip(p, rho_list)], axis = 0)
+        # construct a density matrix as per the Hilbert-Schmidt ensemble (arXiv:1010.3570)
+        rho = G.dot(np.conj(G.T))
+        rho = rho / np.trace(rho)
 
         if flatten:
             rho = rho.ravel()
@@ -338,7 +326,7 @@ def generate_random_state(n = 2, pure = True, density_matrix = True, flatten = T
         rho = rho.reshape((n, n))
 
         # check that it is Hermitian
-        if not np.all(np.conj(rho.T) == rho):
+        if not np.linalg.norm(np.conj(rho.T) - rho) < 1e-8:
             raise ValueError("The generated matrix is not Hermitian")
 
         # check that it is positive sem-definite
@@ -347,7 +335,7 @@ def generate_random_state(n = 2, pure = True, density_matrix = True, flatten = T
             raise ValueError("The generated matrix is not positive semi-definite")
 
         # check that the eigenvalues sum to one (equivalently, the trace is one)
-        if not np.linalg.norm(sum(rho_eigvals) - 1) < 1e-6:
+        if not np.abs(sum(rho_eigvals) - 1) < 1e-8:
             raise ValueError("The trace of the generated matrix is not 1.")
 
         # reflatten if necessary
