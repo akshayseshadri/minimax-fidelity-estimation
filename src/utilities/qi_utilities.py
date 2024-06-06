@@ -1,7 +1,5 @@
 """
     A compilation of some linear algebra and quantum information functions that are commonly used
-
-    Author: Akshay Seshadri
 """
 
 import numpy as np

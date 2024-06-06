@@ -30,8 +30,6 @@
          - 0.5 \max_{sigma_2} [-Tr(rho sigma_2) + \sum_{i = 1}^N alpha R_i log(\sum_{k = 1}^{N_i} exp(phi^{i}_k/alpha) (p^{i}_2)_k)]
 
     The saddle point value \Phi*(r) gives an upper bound for the confidence interval within which the error lies.
-
-    Author: Akshay Seshadri
 """
 
 import warnings

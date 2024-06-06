@@ -1,7 +1,5 @@
 """
     Provides convenient functions to handle data and plotting using matplotlib
-
-    Author: Akshay Seshadri
 """
 
 from cycler import cycler

@@ -1,7 +1,5 @@
 """
     Projects the given Hermitian matrix on the set of density matrices (positive, trace one operators).
-
-    Author: Akshay Seshadri
 """
 
 import numpy as np

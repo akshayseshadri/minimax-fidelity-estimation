@@ -1,7 +1,5 @@
 """
     Manages creation of POVMs and geneartion of outcomes from measuring these POVM given a state
-
-    Author: Akshay Seshadri
 """
 
 import numpy as np

@@ -1,7 +1,5 @@
 """
     Implements various forms of quantum noise.
-
-    Author: Akshay Seshadri
 """
 
 import numpy as np

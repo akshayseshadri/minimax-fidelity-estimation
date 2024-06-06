@@ -1,7 +1,5 @@
 """
     Functions to plot the final figures for the article, by reading from the data file.
-
-    Author: Akshay Seshadri
 """
 
 import numpy as np

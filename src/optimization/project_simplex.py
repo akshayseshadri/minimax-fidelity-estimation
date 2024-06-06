@@ -1,7 +1,5 @@
 """
     Projection of a point on to the probability simplex
-
-    Author: Akshay Seshadri
 """
 
 import numpy as np

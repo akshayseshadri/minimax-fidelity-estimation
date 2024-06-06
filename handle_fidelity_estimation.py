@@ -3,8 +3,6 @@
     These can be provided using a YAML file.
 
     Some convenince functions are provided for Pauli measurements and special states.
-
-    Author: Akshay Seshadri
 """
 
 import numpy as np
@@ -316,7 +314,6 @@ def parse_yaml_settings_file(yaml_filepath):
                         if optional_args['algorithm'] == 'cvxpy_pauli_mem':
                             optional_args['N_list'] = [{'subspace' : 2, 'eigenbasis' : n}[projection]] * len(pauli_op_list)
                             POVM_list_generated = pauli_op_list
-                            break
                         else:
                             POVM_list_generated = [generate_Pauli_POVM(pauli, projection, flatten = True, isComplex = True) for pauli in pauli_op_list]
 
@@ -335,7 +332,7 @@ def parse_yaml_settings_file(yaml_filepath):
         raise ValueError("Please provide a valid setting for POVM_list. Call show_yaml_file_instructions for details.")
 
     # ensure that all POVM elements are flattened complex arrays
-    if not rpm_specified:
+    if (not rpm_specified) and (optional_args['algorithm'] != 'cvxpy_pauli_mem'):
         POVM_elt_size = list()
         for (i_povm, POVM) in enumerate(POVM_list_parsed):
             for (j_povm_elt, Ej) in enumerate(POVM):

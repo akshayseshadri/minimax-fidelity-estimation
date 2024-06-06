@@ -1,7 +1,5 @@
 """
     Add all the root of the project to sys.path.
-
-    Author: Akshay Seshadri
 """
 
 from pathlib import Path

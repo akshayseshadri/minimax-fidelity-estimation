@@ -1,7 +1,5 @@
 """
     Creates a fidelity estimator for any pure state, using randomized Pauli measurement strategy.
-    
-    Author: Akshay Seshadri
 """
 
 import warnings

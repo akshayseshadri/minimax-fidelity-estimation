@@ -1,7 +1,5 @@
 """
     Implements the proximal gradient method.
-
-    Author: Akshay Seshadri
 """
 
 import numpy as np
