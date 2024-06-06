@@ -4,3 +4,4 @@ POVM_list:
   - pauli: [IZX, XIX, XZI, YXY, YYZ, ZXZ, ZYY]
 R_list: 100
 confidence_level: 0.95
+algorithm: cvxpy
