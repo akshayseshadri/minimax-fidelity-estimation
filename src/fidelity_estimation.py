@@ -43,6 +43,13 @@ from src.optimization.project_density_matrices_set import project_on_density_mat
 from src.optimization.proximal_gradient import minimize_proximal_gradient_nesterov
 from src.utilities.qi_utilities import embed_hermitian_matrix_real_vector_space, generate_random_state
 
+### custom warning for optimization
+class MinimaxOptimizationWarning(UserWarning):
+    """
+        Warning specific to optimization performed in the minimax method to find the saddle-point.
+    """
+    pass
+
 class Fidelity_Estimation_Manager():
     """
         Solves the different optimization problems required for fidelity estimation using Juditsky & Nemirovski's approach.

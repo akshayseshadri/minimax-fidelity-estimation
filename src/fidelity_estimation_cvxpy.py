@@ -141,7 +141,7 @@ class Fidelity_Estimation_Manager_CVXPY():
         # tolerance for all the computations
         self.tol = tol
         if tol != 1e-6:
-            warnings.warn("Tolerances in CVXPY optimization are solver dependent. The `tol` parameter will be unused.")
+            warnings.warn("Tolerances in CVXPY optimization are solver dependent. The `tol` parameter will be unused for solvers that are not SCS.")
 
         # create a state for initializing minimize_lagrangian_density_matrices (to be used specifically for find_density_matrices_saddle_point)
         if not random_init:
@@ -239,7 +239,10 @@ class Fidelity_Estimation_Manager_CVXPY():
         if self.cvxpy_prob is None:
             self.define_cvxpy_problem()
 
-        self.cvxpy_prob.solve( verbose=self.print_progress, warm_start=True, solver=solver )
+        if solver == 'SCS':
+            self.cvxpy_prob.solve( verbose=self.print_progress, warm_start=True, solver=solver, eps_abs=0, eps_rel=self.tol )
+        else:
+            self.cvxpy_prob.solve( verbose=self.print_progress, warm_start=True, solver=solver )
 
         self.sigma_1_opt = embed_hermitian_matrix_real_vector_space(self.cvxpy_prob.var_dict['x'].value)
         self.sigma_2_opt = embed_hermitian_matrix_real_vector_space(self.cvxpy_prob.var_dict['y'].value)

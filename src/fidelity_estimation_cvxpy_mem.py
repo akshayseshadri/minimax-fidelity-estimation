@@ -137,6 +137,11 @@ class Fidelity_Estimation_Manager_CVXPY_Mem():
         # embed all Hermitian matrices into a real vector space
         # size of rho before embedding is n^2 (flattened, over complex vector space) and after embedding is also n^2 (but over a real vector space)
         self.rho = embed_hermitian_matrix_real_vector_space(rho)
+
+        # tolerance for all the computations
+        self.tol = tol
+        if tol != 1e-6:
+            warnings.warn("Tolerances in CVXPY optimization are solver dependent. The `tol` parameter will be unused for solvers that are not SCS.")
        
         # list of strings to specify POVMs, one corresponding to each type of measurement
         # Consistent with `generate_Pauli_POVM` The string must consist of I, X, Y, Z or 0, 1, 2, 3.
@@ -234,16 +239,17 @@ class Fidelity_Estimation_Manager_CVXPY_Mem():
             # Handle coarse POVM case
             if self.N_list[i] == 2:
                 # Generate the full Pauli operator matrix out of tensor products
-                P_op = self.phases[i] * self.pauli_basis[meas[0]]
+                P_op = self.pauli_basis[meas[0]]
                 for qi in range( 1, self.nq ):
                     #                 self.pauli_basis[which pauli] 
                     P_op = cp.kron( P_op, self.pauli_basis[meas[qi]] )
+                P_op = self.phases[i] * P_op
 
-                p_1 = (cp.real( cp.trace( 0.5 * (Id - P_op)  @ x ) ) + 0.5 * epsilon_o) 
-                p_2 = (cp.real( cp.trace( 0.5 * (Id - P_op)  @ y ) ) + 0.5 * epsilon_o)
+                p_1 = (cp.real( cp.trace( 0.5 * (Id + P_op)  @ x ) ) + 0.5 * epsilon_o) / (self.phases[i] * np.sign(self.phases[i]))
+                p_2 = (cp.real( cp.trace( 0.5 * (Id + P_op)  @ y ) ) + 0.5 * epsilon_o) / (self.phases[i] * np.sign(self.phases[i]))
 
-                q_1 = (cp.real( cp.trace( 0.5 * (Id + P_op)  @ x ) ) + 0.5 * epsilon_o)
-                q_2 = (cp.real( cp.trace( 0.5 * (Id + P_op)  @ y ) ) + 0.5 * epsilon_o)
+                q_1 = (cp.real( cp.trace( 0.5 * (Id - P_op)  @ x ) ) + 0.5 * epsilon_o) / (self.phases[i] * np.sign(self.phases[i]))
+                q_2 = (cp.real( cp.trace( 0.5 * (Id - P_op)  @ y ) ) + 0.5 * epsilon_o) / (self.phases[i] * np.sign(self.phases[i]))
 
                 lnAffH = lnAffH + Rs[i] * cp.log( cp.geo_mean( cp.vstack([p_1, p_2]) ) / (1 + epsilon_o) + \
                                                   cp.geo_mean( cp.vstack([q_1, q_2]) ) / (1 + epsilon_o) )
@@ -255,7 +261,7 @@ class Fidelity_Estimation_Manager_CVXPY_Mem():
                     qubit = np.binary_repr( meas_i, width=self.nq )
 
                     # Generate the POVM matrix out of tensor products
-                    E_lk = self.phases[i] * self.pauli_evec[meas[0]][qubit[0]]
+                    E_lk = self.pauli_evec[meas[0]][qubit[0]]
                     for qi in range( 1, self.nq ):
                         #                 self.pauli_evec[which pauli][which evector] 
                         E_lk = cp.kron( E_lk, self.pauli_evec[meas[qi]][qubit[qi]] ) 
@@ -302,7 +308,10 @@ class Fidelity_Estimation_Manager_CVXPY_Mem():
         if self.cvxpy_prob is None:
             self.define_cvxpy_problem()
             
-        self.cvxpy_prob.solve( verbose=self.print_progress, warm_start=True, solver=solver )
+        if solver == 'SCS':
+            self.cvxpy_prob.solve( verbose=self.print_progress, warm_start=True, solver=solver, eps_abs=0, eps_rel=self.tol )
+        else:
+            self.cvxpy_prob.solve( verbose=self.print_progress, warm_start=True, solver=solver )
 
         self.sigma_1_opt = embed_hermitian_matrix_real_vector_space(self.cvxpy_prob.var_dict['x'].value)
         self.sigma_2_opt = embed_hermitian_matrix_real_vector_space(self.cvxpy_prob.var_dict['y'].value)
@@ -363,16 +372,17 @@ class Fidelity_Estimation_Manager_CVXPY_Mem():
             # Handle coarse POVM case
             if self.N_list[i] == 2:
                 # Generate the full Pauli operator matrix out of tensor products
-                P_op = self.phases[i] * self.pauli_basis[meas[0]]
+                P_op = self.pauli_basis[meas[0]]
                 for qi in range( 1, self.nq ):
                     #                 self.pauli_basis[which pauli] 
                     P_op = cp.kron( P_op, self.pauli_basis[meas[qi]] )
+                P_op = self.phases[i] * P_op
 
-                p_1 = (np.real( np.trace( 0.5 * (Id - P_op).value @ x_opt ) ) + 0.5 * self.epsilon_o) 
-                p_2 = (np.real( np.trace( 0.5 * (Id - P_op).value @ y_opt ) ) + 0.5 * self.epsilon_o)
+                p_1 = (np.real( np.trace( 0.5 * (Id + P_op).value @ x_opt ) ) + 0.5 * self.epsilon_o) / (self.phases[i] * np.sign(self.phases[i]))
+                p_2 = (np.real( np.trace( 0.5 * (Id + P_op).value @ y_opt ) ) + 0.5 * self.epsilon_o) / (self.phases[i] * np.sign(self.phases[i]))
 
-                q_1 = (np.real( np.trace( 0.5 * (Id + P_op).value @ x_opt ) ) + 0.5 * self.epsilon_o)
-                q_2 = (np.real( np.trace( 0.5 * (Id + P_op).value @ y_opt ) ) + 0.5 * self.epsilon_o)
+                q_1 = (np.real( np.trace( 0.5 * (Id - P_op).value @ x_opt ) ) + 0.5 * self.epsilon_o) / (self.phases[i] * np.sign(self.phases[i]))
+                q_2 = (np.real( np.trace( 0.5 * (Id - P_op).value @ y_opt ) ) + 0.5 * self.epsilon_o) / (self.phases[i] * np.sign(self.phases[i]))
 
                 phi_alpha_opt_list[i] = np.array( [0.5*np.log(p_1/p_2), 0.5*np.log(q_1/q_2)] )
                 
@@ -383,7 +393,7 @@ class Fidelity_Estimation_Manager_CVXPY_Mem():
                     qubit = np.binary_repr( meas_i, width=self.nq )
 
                     # Generate the POVM matrix out of tensor products
-                    E_lk = self.phases[i] * self.pauli_evec[meas[0]][qubit[0]]
+                    E_lk = self.pauli_evec[meas[0]][qubit[0]]
                     for qi in range( 1, self.nq ):
                         #                 self.pauli_evec[which pauli][which evector] 
                         E_lk = cp.kron( E_lk, self.pauli_evec[meas[qi]][qubit[qi]] ) 
